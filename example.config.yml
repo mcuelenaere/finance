@@ -1,0 +1,19 @@
+rules:
+  - field: destination.number
+    value: BE12345678901234
+    category: RENT
+  - field: destination.name
+    regex: ^F.O.D.
+    category: TAXES
+  - field: description
+    regex: aandelen
+    category: INVESTMENT - SHARES
+  - field: destination.name
+    regex: ^GB (CONTACT|EXPRESS)
+    category: FOOD
+
+files:
+  - path: ./some_dir/some_file.csv
+    format: ing_be
+  - path: ./wildcards/are_supported_too_*.csv
+    format: ing_be
