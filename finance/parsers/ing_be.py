@@ -16,10 +16,10 @@ def try_parse_destination(row: dict) -> Optional[Account]:
         number = None
         for part in re.split(r"\s{3,}", row['Detail van de omzet']):
             if part.startswith("Van: ") or part.startswith('Ten gunste van: '):
-                name = part.split(" ", 2)[1]
-            elif part.startswith("IBAN: "):
-                number = part.split(" ", 2)[1]
-        if name and number:
+                name = part.split(": ", 2)[1]
+            elif part.startswith("IBAN: ") or part.startswith("IBAN : "):
+                number = part.split(": ", 2)[1]
+        if name or number:
             return Account(number=number, name=name)
 
     if row['Omschrijving'].startswith('Europese domiciliëring'):
@@ -55,6 +55,20 @@ def try_parse_destination(row: dict) -> Optional[Account]:
             parts = line.split(" - ")
             if len(parts) >= 3:
                 return Account(number=None, name=' - '.join(parts[2:]))
+
+    m = re.match(
+        r'^(Opvraging Self\'Bank|Opvraging Bancontact/Mister Cash|Betaling aankoop Bancontact/Mister Cash|Aankoop Maestro|Opvraging Maestro|Betaling tankbeurt Bancontact/Mister Cash)\s{3,}[\- \d,]+\s+([^,]+), \d+/\d+, ',
+        row['Omschrijving']
+    )
+    if m:
+        return Account(number=None, name=m.group(2))
+
+    m = re.match(
+        r'^Kaart: [\-\d]+\s{3,}(.+) \d+/\d+ \d+:\d+',
+        row['Omschrijving']
+    )
+    if m:
+        return Account(number=None, name=m.group(1))
 
     return None
 
