@@ -41,7 +41,7 @@ class Categorizer(object):
     def categorize(self, transaction: Transaction) -> str:
         for rule in self.rules:
             value = _recursive_getattr(transaction, rule.field)
-            if value and rule.regex.match(str(value)):
+            if value and rule.regex.search(str(value)):
                 return rule.category
 
         return self.fallback_category
