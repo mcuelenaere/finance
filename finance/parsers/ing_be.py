@@ -35,7 +35,8 @@ def try_parse_destination(row: dict) -> Optional[Account]:
 
     if row['Omschrijving'].startswith('ING Smart Banking-betaling') or \
        row['Omschrijving'].startswith('Overschrijving MyING.be') or \
-       row['Omschrijving'].startswith('Overschrijving Home\'Bank'):
+       row['Omschrijving'].startswith('Overschrijving Home\'Bank') or \
+       row['Omschrijving'].startswith('Overschrijving in euro (SEPA): ING Smart Banking'):
         for part in re.split(r"\s{3,}", row['Omschrijving']):
             if part.startswith("Naar: "):
                 name, number = part.replace('Naar: ', '').split(' - ', 2)
