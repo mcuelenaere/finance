@@ -8,6 +8,9 @@ class Currency(Enum):
     EUR = 'EUR'
     USD = 'USD'
 
+    def __str__(self):
+        return self.value
+
 
 class Account(NamedTuple):
     number: Optional[str]
