@@ -10,7 +10,7 @@ class Currency(Enum):
 
 
 class Account(NamedTuple):
-    number: str
+    number: Optional[str]
     name: Optional[str]
 
 
