@@ -1,6 +1,6 @@
 import re
 from finance.models import Transaction
-from typing import Iterable, NamedTuple
+from typing import Dict, Iterable, NamedTuple
 
 
 class Rule(NamedTuple):
@@ -9,7 +9,7 @@ class Rule(NamedTuple):
     category: str
 
 
-def parse_rule_from_config(config) -> Rule:
+def parse_rule_from_config(config: Dict) -> Rule:
     if config.get('value', None):
         regex = re.compile(r'^' + re.escape(config['value']) + r'$')
     elif config.get('regex', None):
