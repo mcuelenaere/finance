@@ -74,28 +74,32 @@ def try_parse_destination(row: dict) -> Optional[Account]:
     return None
 
 
+def parse_from_io(f) -> Iterable[Transaction]:
+    reader = csv.DictReader(f, dialect=IngDialect())
+    for row in reader:
+        source = Account(
+            number=row['Rekeningnummer'],
+            name=row['Naam van de rekening']
+        )
+        destination = try_parse_destination(row)
+        currency = Currency.EUR if row['Munteenheid'] == 'EUR' else None  # FIXME
+        amount = Decimal(row['Bedrag'].replace(",", ".")) if row['Bedrag'] else None
+        timestamp = datetime.strptime(row['Valutadatum'], "%d/%m/%Y") if row['Valutadatum'] else None
+
+        if not destination:
+            # print(dict(row))
+            continue
+
+        yield Transaction(
+            source=source,
+            destination=destination,
+            timestamp=timestamp,
+            amount=amount,
+            currency=currency,
+            description=row['Omschrijving'].strip(),
+        )
+
+
 def parse_file(file: str) -> Iterable[Transaction]:
     with open(file, 'r', encoding='Windows-1252') as f:
-        reader = csv.DictReader(f, dialect=IngDialect())
-        for row in reader:
-            source = Account(
-                number=row['Rekeningnummer'],
-                name=row['Naam van de rekening']
-            )
-            destination = try_parse_destination(row)
-            currency = Currency.EUR if row['Munteenheid'] == 'EUR' else None  # FIXME
-            amount = Decimal(row['Bedrag'].replace(",", ".")) if row['Bedrag'] else None
-            timestamp = datetime.strptime(row['Valutadatum'], "%d/%m/%Y") if row['Valutadatum'] else None
-
-            if not destination:
-                #print(dict(row))
-                continue
-
-            yield Transaction(
-                source=source,
-                destination=destination,
-                timestamp=timestamp,
-                amount=amount,
-                currency=currency,
-                description=row['Omschrijving'],
-            )
+        return parse_from_io(f)
