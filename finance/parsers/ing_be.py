@@ -102,4 +102,4 @@ def parse_from_io(f) -> Iterable[Transaction]:
 
 def parse_file(file: str) -> Iterable[Transaction]:
     with open(file, 'r', encoding='Windows-1252') as f:
-        return parse_from_io(f)
+        yield from parse_from_io(f)
