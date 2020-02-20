@@ -34,6 +34,19 @@ testcases = (
             timestamp=datetime.fromisoformat("2020-02-13T00:00:00"),
             description="UW COLLECTIEVE OVERSCHRIJVING LONEN ISABEL BESTAND :   050/2020-02-13 140003 GROEP : 010/2020-0/0000          REF. : 0000000000001 VAL. 13-02"
         )
+    ),
+    (
+        r"BE33 1234 5678 9123;03/02/2020;00002;73;;;;;MAESTRO-BETALING 01/02-GENT COMIC SANS BE 8,00 EUR     "
+        + r"KAART NR 1234 5678 9012 3456 - Foo Bar       REF. : 0000000000001 VAL. 03-02;03/02/2020;-8,00;EUR;"
+        + r";;MAESTRO-BETALING 01/02-GENT COMIC SANS BE 8,00 EUR     KAART NR 1234 5678 9012 3456 - Foo Bar       REF. : 0000000000001 VAL. 03-02",
+        Transaction(
+            source=Account(number="BE33 1234 5678 9123", name=None),
+            destination=Account(number=None, name="GENT COMIC SANS BE"),
+            amount=Decimal("-8"),
+            currency=Currency.EUR,
+            timestamp=datetime.fromisoformat("2020-02-03T00:00:00"),
+            description="MAESTRO-BETALING 01/02-GENT COMIC SANS BE 8,00 EUR     KAART NR 1234 5678 9012 3456 - Foo Bar       REF. : 0000000000001 VAL. 03-02"
+        )
     )
 )
 
