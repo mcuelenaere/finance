@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "finance"
+version = "0.1.0"
+description = "Finance management tool"
+repository = "https://github.com/mcuelenaere/finance"
+authors = ["Maurus Cuelenaere <mcuelenaere@gmail.com>"]
+
+[tool.poetry.dependencies]
+pygal = "^2.4.0"
+PyYAML = "^5.1"
+
+[tool.poetry.scripts]
+generate_graphs = "finance.cli.generate_graphs:main"
+export_csv = "finance.cli.export_csv:main"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"

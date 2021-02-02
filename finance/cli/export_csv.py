@@ -2,7 +2,8 @@ import csv
 import sys
 from finance.config import parse_config
 
-if __name__ == "__main__":
+
+def main():
     config = parse_config(sys.argv[1])
     categorizer = config.categorizer()
     transactions = sorted(config.transactions(), key=lambda t: (t.timestamp, t.source.number))
