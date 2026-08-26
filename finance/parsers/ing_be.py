@@ -96,7 +96,7 @@ def parse_from_io(f) -> Iterable[Transaction]:
             timestamp=timestamp,
             amount=amount,
             currency=currency,
-            description=row['Omschrijving'].strip(),
+            description=row['Detail van de omzet'].strip(),
         )
 
 
