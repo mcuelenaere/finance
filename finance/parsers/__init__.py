@@ -9,7 +9,14 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator
 
 from finance.models import Directive
-from finance.parsers import belfius_be, coinbase_pro, degiro, edenred, ing_be
+from finance.parsers import (
+    belfius_be,
+    coinbase_pro,
+    degiro,
+    edenred,
+    ing_be,
+    trade_republic,
+)
 from finance.parsers.base import Accounts, UnknownAccountError
 
 Parser = Callable[[str, Accounts], Iterator[Directive]]
@@ -20,6 +27,7 @@ FORMATS: dict[str, Parser] = {
     "degiro": degiro.parse_file,
     "edenred": edenred.parse_file,
     "ing_be": ing_be.parse_file,
+    "trade_republic": trade_republic.parse_file,
 }
 
 __all__ = ["FORMATS", "Accounts", "Parser", "UnknownAccountError"]
