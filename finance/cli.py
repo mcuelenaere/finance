@@ -137,21 +137,46 @@ def cmd_review(slug: str, limit: int) -> int:
     return 0
 
 
+def _mask(identifier: str) -> str:
+    """Shorten an account identifier for display, keeping it recognizable."""
+    compact = identifier.replace(" ", "")
+    return f"{compact[:5]}…{compact[-3:]}" if len(compact) > 9 else compact
+
+
 def _transfer_report(ruleset: Ruleset, directives: Iterable[Directive]) -> int:
-    """Report the clearing account balance, which should net to zero once legs pair up."""
+    """Report the clearing account balance, which should net to zero once legs pair up.
+
+    A bare total is not actionable — the useful question is always *which* counterparty is
+    unpaired, so the breakdown is printed alongside it. Counterparties whose legs offset
+    (both sides of an internal transfer imported) drop out on their own.
+    """
     account = ruleset.transfer_account
     per_currency: dict[str, Decimal] = defaultdict(Decimal)
-    stale: list[Transaction] = []
+    per_route: dict[tuple[str, str], list] = defaultdict(lambda: [Decimal(0), 0])
+    stale = 0
     cutoff = Date.today() - timedelta(days=SETTLEMENT_DAYS)
 
     for directive in directives:
         if not isinstance(directive, Transaction):
             continue
         for posting_account, amount in posting_amounts(directive):
-            if posting_account == account:
-                per_currency[amount.currency] += amount.number
-                if directive.date <= cutoff:
-                    stale.append(directive)
+            if posting_account != account:
+                continue
+            per_currency[amount.currency] += amount.number
+
+            # Group by the *route*, not the counterparty. An internal transfer is reported
+            # twice — once from each side, each naming the other as counterparty — so keying
+            # on the counterparty alone splits a balanced pair into two scary-looking halves.
+            own = next((a for a, _ in posting_amounts(directive) if a != account), "(unknown)")
+            counterparty = str(directive.meta.get("counterparty_iban") or "")
+            far = ruleset.account_for_identifier(counterparty) or _mask(counterparty or "(none)")
+            route = " <-> ".join(sorted([str(own), str(far)]))
+
+            entry = per_route[(route, amount.currency)]
+            entry[0] += amount.number
+            entry[1] += 1
+            if directive.date <= cutoff:
+                stale += 1
 
     outstanding = {c: n for c, n in per_currency.items() if n != 0}
     if not outstanding:
@@ -161,9 +186,27 @@ def _transfer_report(ruleset: Ruleset, directives: Iterable[Directive]) -> int:
     print(f"{account}: does NOT settle to zero")
     for currency, number in sorted(outstanding.items()):
         print(f"  {number} {currency}")
+
+    unpaired = sorted(
+        ((route, cur, net, n) for (route, cur), (net, n) in per_route.items() if net != 0),
+        key=lambda row: -abs(row[2]),
+    )
+    balanced = sum(1 for (_, _), (net, _) in per_route.items() if net == 0)
+    if unpaired:
+        width = max(len(route) for route, _, _, _ in unpaired)
+        print(f"\n  unpaired routes ({balanced} balanced route(s) omitted):")
+        for route, currency, net, count in unpaired:
+            legs = "leg" if count == 1 else "legs"
+            print(f"    {route:<{width}}  {net:>12} {currency}  ({count} {legs})")
+
     print(
-        f"  a non-zero clearing balance means a transfer leg is missing or double-counted\n"
-        f"  ({len(stale)} legs older than {SETTLEMENT_DAYS} days touch this account)"
+        f"\n  A non-zero balance means a leg is missing or double-counted. Usual causes:\n"
+        f"    - the counterparty's own export is not in `files`, so its leg never arrives\n"
+        f"      (such a counterparty does not belong in own_accounts — post it straight to\n"
+        f"      its asset account instead)\n"
+        f"    - the pairing leg falls outside the exported date range\n"
+        f"    - the transfer has not settled yet ({stale} "
+        f"{'leg is' if stale == 1 else 'legs are'} older than {SETTLEMENT_DAYS} days)"
     )
     return 1
 
