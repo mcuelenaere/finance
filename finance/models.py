@@ -1,26 +1,122 @@
-from datetime import datetime
+"""Intermediate representation of a ledger, mirroring ``beancount.core.data``.
+
+Field names and their order match Beancount's own namedtuples. That is deliberate:
+
+* the renderer stays a dumb serializer with no logic of its own,
+* the structs map 1:1 onto the output format (and onto rustledger, which is
+  format-compatible),
+* converting to real ``beancount`` objects later is a rename, not a rewrite.
+
+Because Beancount puts ``meta`` first and defines no defaults, **construct these with
+keyword arguments**. That keeps call sites readable without sacrificing the field order.
+
+Two conventions carry meaning beyond Beancount's own:
+
+* ``Posting.account is None`` means *unresolved* — the parser could not know which account
+  belongs on the other side, and the rules engine is expected to fill it in.
+* ``Posting.units is None`` means *elided*. Beancount auto-balances a single missing amount
+  within a transaction, so the renderer usually does not need to compute it.
+"""
+
+from __future__ import annotations
+
+from datetime import date as Date
 from decimal import Decimal
-from enum import Enum
-from typing import NamedTuple, Optional
+from typing import NamedTuple
+
+# Beancount entry/posting flags.
+FLAG_OKAY = "*"
+FLAG_PENDING = "!"
+
+#: Beancount metadata. Values are rendered as strings, numbers or dates.
+type Meta = dict[str, object]
 
 
-class Currency(Enum):
-    EUR = 'EUR'
-    USD = 'USD'
-
-    def __str__(self):
-        return self.value
+class Amount(NamedTuple):
+    number: Decimal
+    currency: str
 
 
-class Account(NamedTuple):
-    number: Optional[str]
-    name: Optional[str]
+class Cost(NamedTuple):
+    number: Decimal
+    currency: str
+    date: Date | None
+    label: str | None
+
+
+class Posting(NamedTuple):
+    account: str | None
+    units: Amount | None
+    cost: Cost | None = None
+    price: Amount | None = None
+    flag: str | None = None
+    meta: Meta | None = None
 
 
 class Transaction(NamedTuple):
-    source: Account
-    destination: Account
-    timestamp: Optional[datetime]
-    amount: Decimal
-    currency: Currency
-    description: Optional[str]
+    meta: Meta
+    date: Date
+    flag: str
+    payee: str | None
+    narration: str
+    tags: frozenset[str]
+    links: frozenset[str]
+    postings: tuple[Posting, ...]
+
+
+class Balance(NamedTuple):
+    meta: Meta
+    date: Date
+    account: str
+    amount: Amount
+
+
+class Open(NamedTuple):
+    meta: Meta
+    date: Date
+    account: str
+    currencies: tuple[str, ...]
+
+
+class Price(NamedTuple):
+    meta: Meta
+    date: Date
+    currency: str
+    amount: Amount
+
+
+#: Anything the renderer knows how to serialize.
+type Directive = Transaction | Balance | Open | Price
+
+
+def is_resolved(txn: Transaction) -> bool:
+    """True when every posting has an account assigned."""
+    return all(posting.account is not None for posting in txn.postings)
+
+
+def posting_amounts(txn: Transaction) -> list[tuple[str | None, Amount]]:
+    """Return every posting's ``(account, amount)``, filling in a single elided amount.
+
+    Most generated transactions leave the counter-posting's amount to Beancount, which balances
+    it automatically. Anything that wants to *sum* postings — the transfer clearing report, for
+    instance — therefore has to reconstruct it, or it silently sees nothing and reports a total
+    of zero.
+
+    Only the unambiguous case is inferred: exactly one elided posting, and the remaining
+    postings all in one currency. Anything else is left out rather than guessed at.
+    """
+    out: list[tuple[str | None, Amount]] = []
+    elided = [i for i, posting in enumerate(txn.postings) if posting.units is None]
+
+    for posting in txn.postings:
+        if posting.units is not None:
+            out.append((posting.account, posting.units))
+
+    if len(elided) == 1:
+        currencies = {amount.currency for _, amount in out}
+        if len(currencies) == 1:
+            currency = currencies.pop()
+            residual = sum((amount.number for _, amount in out), start=Decimal(0))
+            out.append((txn.postings[elided[0]].account, Amount(-residual, currency)))
+
+    return out

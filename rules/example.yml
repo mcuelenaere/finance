@@ -1,0 +1,78 @@
+# Per-ledger configuration. Copy to rules/<slug>.yml — e.g. rules/prive.yml — and fill in.
+#
+# Every value below is fake. Real rules files are gitignored because they contain account
+# numbers; only this example is committed.
+#
+# Nothing in here is applied by a model at build time. An agent *writes* this file (working
+# through `finance review <slug>`), and `finance build` then applies it deterministically.
+
+# Where unmatched transactions land. Anything here is work for `finance review`.
+fallback_account: Expenses:Unknown
+
+# Clearing account for money moving between accounts you own. Both legs post here, so it
+# nets to zero once they pair up — a non-zero balance means a leg is missing or
+# double-counted. See `finance check`.
+transfer_account: Assets:Transfers
+
+# Your own accounts. This does double duty:
+#   1. resolves which Beancount account a statement file belongs to, and
+#   2. detects internal transfers — any transaction whose counterparty is listed here is
+#      routed to transfer_account instead of being treated as an expense.
+#
+# Keys are matched with whitespace stripped and uppercased, so "BE12 3456 7890 1234" and
+# "be12345678901234" are the same key. Brokers with no IBAN in their export use the fixed
+# key their parser declares (ACCOUNT_KEY): degiro, coinbase_pro.
+own_accounts:
+  BE12 3456 7890 1234: Assets:Belfius:Checking
+  BE98 7654 3210 9876: Assets:Belfius:Savings
+  123-4567890-12: Assets:ING:Checking
+  degiro: Assets:Investments:Degiro:Cash
+  coinbase_pro: Assets:Crypto:CoinbasePro:Cash
+
+# Raw exports to read. Globs are relative to the repo root. Keep these paths ASCII — macOS
+# stores filenames decomposed (NFD), so an accented path pasted in composed form matches
+# nothing and the failure is silent.
+files:
+  - path: data/example/belfius/accounts/*.csv
+    format: belfius_be
+  - path: data/example/ing/*.csv
+    format: ing_be
+  - path: data/example/degiro/Account.csv
+    format: degiro
+  - path: data/example/gdax/account.csv
+    format: coinbase_pro
+
+# Categorization rules, applied in order — the first match wins.
+#
+#   field:   payee | narration | meta.<key>
+#            useful meta keys: counterparty_iban, detail, description, isin, product
+#   value:   matches the whole field exactly (whitespace collapsed first)
+#   regex:   Python regex, applied as a search
+#   account: the Beancount account to post the other side to
+#
+# Note that whitespace runs are collapsed before matching, so write rules against the
+# readable form: "PROXY DELHAIZE", not "PROXY      DELHAIZE".
+rules:
+  # A counterparty IBAN that is *not* one of your own — anything listed in own_accounts above
+  # is claimed as a transfer before rules are consulted, so a rule on it would never fire.
+  - field: meta.counterparty_iban
+    value: BE44 5566 7788 9900
+    account: Expenses:Home:Rent
+
+  - field: payee
+    regex: ^F\.O\.D\.
+    account: Expenses:Taxes
+
+  - field: payee
+    regex: ^(PROXY )?DELHAIZE|^CARREFOUR|^BIO-PLANET
+    account: Expenses:Food:Groceries
+
+  # Investment transfers are *not* expenses — the money moved, it was not spent. Booking
+  # these to an expense account is what makes net worth come out wrong.
+  - field: narration
+    regex: aandelen
+    account: Assets:Investments:Degiro:Cash
+
+  - field: payee
+    value: DEGIRO
+    account: Expenses:Financial:Fees
