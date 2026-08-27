@@ -84,6 +84,5 @@ parallel names; run `grep -o 'account: .*' rules/<slug>.yml | sort -u` first.
 - `Assets:Transfers` settles to zero, or every remaining leg is genuinely in flight (< 5 days).
 - Two consecutive `finance build` runs produce a byte-identical file.
 
-`rules/<slug>.yml` is gitignored (it holds account numbers), so there is nothing to commit
-from this loop unless the repo is private — see the privacy note in README.md before committing
-anything under `ledger/`.
+`rules/<slug>.yml` is gitignored, so this loop produces nothing to commit. See CLAUDE.md
+before adding anything tracked.

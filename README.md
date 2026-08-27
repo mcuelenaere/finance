@@ -14,7 +14,7 @@ data/<ledger>/<institution>/*      raw exports (gitignored)
         │  parsers — pure, deterministic, no AI
         ▼
    Beancount directives, counter-postings unresolved
-        │  rules/<ledger>.yml — AI-authored, committed
+        │  rules/<ledger>.yml — AI-authored rules
         ▼
 ledger/<ledger>/generated.beancount   build artifact — never hand-edited
         +  accounts.beancount / manual.beancount / prices.beancount (hand-written)
@@ -27,22 +27,6 @@ reproducible from raw data plus rules. Nothing is appended and there is no impor
 
 **No LLM ever sees a transaction.** Models write the *rules*; the code applies them
 deterministically. See [CLAUDE.md](CLAUDE.md) for that workflow.
-
-## Privacy
-
-**The GitHub remote for this repo is public.** Three directories are therefore gitignored and
-must stay that way:
-
-| path | why |
-| --- | --- |
-| `data/` | raw exports — account numbers, balances, every merchant |
-| `rules/` | rules are keyed on IBANs and merchant names (`rules/example.yml` is the exception) |
-| `ledger/` | the generated ledger is the *whole* financial history in plain text |
-
-That costs one thing worth knowing about: `generated.beancount` is a build artifact whose diffs
-are the natural way to review what a rule change did, and an ignored file has no diffs. If you
-want that, keep the ledger in a separate private repo (or make this one private) rather than
-relaxing the ignore rules here.
 
 ## Usage
 

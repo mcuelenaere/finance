@@ -15,6 +15,58 @@ gets materialized as text and committed. Nothing is recomputed by a model at bui
 Concretely: do not add an LLM call to any module under `finance/`. If a task seems to need
 one, it belongs in a skill that writes text instead.
 
+## The second rule: nothing private leaves this repo
+
+**The GitHub remote is public.** `data/`, `rules/` and `ledger/` are gitignored, but that only
+covers whole files. Private data reaches tracked content through the gaps around them, and
+each of these routes is easy to walk into:
+
+- **Commit messages.** A message body is exactly as public as the code. Balances, clearing
+  totals, account-tree names, transaction counts and date ranges all read naturally in a
+  commit message, and all of them are private.
+- **Docstrings and comments.** An amount or IBAN reached for as an illustrative example is
+  usually a real one, copied from whatever happened to be on screen.
+- **Test fixtures.** Same reflex — the real exports are the nearest source of realistic test
+  data, and a fixture is forever.
+- **`rules/example.yml`.** Tempting to seed from the real rules file, which brings real
+  account numbers and the real data layout along with it.
+
+So: **never write a real figure or identifier anywhere git tracks.** That covers account
+numbers, balances, amounts, account-tree names, transaction counts, date ranges, merchant
+names specific to the user, and file paths under `data/`.
+
+When something concrete is genuinely needed:
+
+- Fake IBANs in the `BE12 3456 7890 1234` / `BE12345678901234` style (`123-4567890-12` for
+  ING-format numbers). Keep them obviously sequential so nobody mistakes them for real.
+- Describe magnitudes qualitatively — "reduced the outstanding balance by two orders of
+  magnitude", not the figures.
+- Format examples can use `1.234,56`, which illustrates European notation without being
+  anyone's transaction.
+
+Before committing, check the staged content *and* the message you are about to use:
+
+```bash
+# account-number shapes in staged content (Belgian IBAN, and ING's 123-4567890-12 format)
+git diff --cached | grep -nE '[A-Z]{2}[0-9]{2} ?[0-9]{4}|[0-9]{3}-[0-9]{7}-[0-9]{2}'
+
+# any staged file that should never be tracked
+git diff --cached --name-only | grep -E '^(data|ledger)/|^rules/' | grep -v '^rules/example.yml'
+```
+
+The second must print nothing. The first is a *review prompt*, not a pass/fail gate: it also
+matches the deliberate fakes, so read what it prints and confirm each hit is one of those
+rather than assuming an empty result means safe. (It avoids a negative lookahead on purpose —
+BSD `grep` and `ugrep` both reject `(?!…)`, hence the second `grep -v`.)
+
+Then read the message you are about to commit and confirm it carries no amounts, balances or
+account names. No tooling catches that part, and it is where the leaks actually happened.
+
+If something does get committed, note that **force-pushing does not remove it from GitHub** —
+the orphaned commit stays reachable by SHA. Fixing it properly means making the repo private,
+asking GitHub Support to garbage-collect, or recreating the repo. Say so rather than implying
+a rewrite was sufficient.
+
 ## Commands
 
 ```bash
@@ -47,9 +99,14 @@ account belongs in `own_accounts`, which routes both legs through `Assets:Transf
 account nets to zero once legs pair, so a persistent non-zero balance means a leg is missing or
 double-counted. `finance check` reports it.
 
-**`generated.beancount` is a build artifact.** It is committed so diffs are reviewable, but
-never edit it — the next build overwrites it. Fix the rule instead. Hand-written entries
-(apartment, mortgage, opening balances) go in `manual.beancount`.
+**`generated.beancount` is a build artifact.** Never edit it — the next build overwrites it.
+Fix the rule instead. Hand-written entries (apartment, mortgage, opening balances) go in
+`manual.beancount`, which the build never touches.
+
+It is *not* committed, despite diffs being the natural way to review what a rule change did:
+`ledger/` is gitignored because this remote is public and the file is the entire financial
+history in plain text. Getting that review loop back means a separate private repo for the
+ledger, not relaxing the ignore rules.
 
 **Investment transfers are not expenses.** A rule sending a broker transfer to `Expenses:*`
 makes net worth permanently wrong. Those go to `Assets:*`.
