@@ -37,7 +37,17 @@ from collections.abc import Iterator
 from datetime import datetime, timedelta
 from decimal import Decimal
 
-from finance.models import FLAG_OKAY, Amount, Balance, Directive, Posting, Transaction
+from finance.models import (
+    EMPTY_COST,
+    FLAG_OKAY,
+    Amount,
+    Balance,
+    Cost,
+    Directive,
+    Open,
+    Posting,
+    Transaction,
+)
 from finance.parsers.base import Accounts, parse_decimal, resolve_account
 from finance.text import normalize_text
 
@@ -49,6 +59,12 @@ ACCOUNT_KEY = "degiro"
 #: Optional ``own_accounts`` key for the flatexDEGIRO parking account. Defaults to a sibling of
 #: the cash account.
 FLATEX_ACCOUNT_KEY = "degiro_flatex"
+
+#: Optional ``own_accounts`` key for where realised gains land. A parser policy choice, and
+#: necessarily one: a disposal's gain is computed by Beancount from the lots, so there is no row
+#: for a rule to claim.
+GAINS_ACCOUNT_KEY = "degiro_gains"
+DEFAULT_GAINS_ACCOUNT = "Income:CapitalGains"
 
 COLUMNS = 12
 
@@ -87,6 +103,94 @@ def _parse_narration_amount(text: str) -> Decimal:
 #: Cash swept to or from the flatexDEGIRO account, however the row happens to describe it.
 SWEEP_PREFIX = "Overboeking naar uw geldrekening bij flatexDEGIRO"
 SWEEP_PREFIX_BACK = "Overboeking van uw geldrekening bij flatexDEGIRO"
+
+#: A trade, as the description spells it: ``Koop 474 @ 91,295 EUR``. Mergers and spin-offs use
+#: the same wording, so they are matched by this too.
+TRADE = re.compile(
+    r"\b(?P<side>Koop|Verkoop)\s+(?P<quantity>[\d.,]+)\s*@\s*(?P<price>[\d.,]+)\s*"
+    r"(?P<currency>[A-Z]{3})"
+)
+
+#: A share split, which names no side: ``SPLIT AANPASSING: 85 ADR on Sony @ 19,028 USD``.
+#: These come in pairs whose cash amounts cancel — one row retires the old share count and the
+#: other creates the new one — so the direction comes from the sign of the cash instead.
+#: Without them the lots never adjust, and a later disposal has nothing to reduce.
+SPLIT = re.compile(
+    r"SPLIT AANPASSING:\s*(?P<quantity>[\d.,]+)\s+.*?@\s*(?P<price>[\d.,]+)\s*"
+    r"(?P<currency>[A-Z]{3})"
+)
+
+#: Where positions are held. One account holding many commodities: FIFO applies per commodity,
+#: so splitting per instrument would buy nothing.
+POSITIONS_LEAF = "Positions"
+
+#: Lot matching for disposals. A broker export never names the lot being sold.
+BOOKING = "FIFO"
+
+#: How far quantity x price may sit from the cash amount and still be considered proven.
+TRADE_TOLERANCE = Decimal("0.02")
+
+
+def _number_readings(text: str) -> set[Decimal]:
+    """Every plausible reading of a European-formatted number.
+
+    ``1.172`` is either one-point-one-seven-two or one thousand one hundred and seventy-two,
+    and the description gives nothing to decide with. Rather than guess, produce both and let
+    the caller pick the one the cash amount confirms.
+    """
+    readings = set()
+    if "," in text:
+        readings.add(Decimal(text.replace(".", "").replace(",", ".")))
+    else:
+        readings.add(Decimal(text))
+        if "." in text:
+            readings.add(Decimal(text.replace(".", "")))
+    return readings
+
+
+def parse_trade(
+    description: str, cash: Decimal, cash_currency: str
+) -> tuple[Decimal, Decimal] | None:
+    """Return ``(quantity, unit_price)`` for a trade, or None if it cannot be proven.
+
+    The reading is chosen by arithmetic rather than by guesswork: of the candidate
+    interpretations, the one whose quantity times price equals the cash that actually moved is
+    the right one. Bonds are quoted as a percentage of nominal, so a hundredfold scaling is a
+    candidate too.
+
+    None means "do not book a position" — better a row that stays cash-only and shows up in
+    review than a holding invented from a misread number.
+    """
+    match = TRADE.search(description) or SPLIT.search(description)
+    if not match or not cash or match.group("currency") != cash_currency:
+        return None
+
+    target = abs(cash)
+    if "side" in match.groupdict() and match.group("side"):
+        sign = Decimal(1) if match.group("side") == "Koop" else Decimal(-1)
+    else:
+        # A split row names no side: cash out means shares acquired, cash in means retired.
+        sign = Decimal(1) if cash < 0 else Decimal(-1)
+
+    for quantity in _number_readings(match.group("quantity")):
+        for price in _number_readings(match.group("price")):
+            for scale in (Decimal(1), Decimal(100)):
+                if abs(quantity * price / scale - target) <= TRADE_TOLERANCE:
+                    return sign * quantity, price / scale
+    return None
+
+
+def commodity_of(isin: str, product: str) -> str | None:
+    """The Beancount commodity for an instrument.
+
+    ISIN where there is one — stable, unambiguous and already a valid commodity name. Crypto
+    has no ISIN, so the product name is used instead.
+    """
+    if isin.strip():
+        return isin.strip().upper()
+    name = re.sub(r"[^A-Za-z0-9]", "", product).upper()
+    return name if name[:1].isalpha() else None
+
 
 #: Idle cash converted into, or out of, DEGIRO's money-market fund.
 MONEY_MARKET = ("Conversie geldmarktfonds", "DEGIRO Geldmarktfondsen", "EUR CASH FUND")
@@ -144,6 +248,10 @@ def _counter_account(description: str, cash: str, flatex: str) -> str | None:
 def parse_from_io(handle, accounts: Accounts, *, source_file: str = "") -> Iterator[Directive]:
     cash = resolve_account(accounts, ACCOUNT_KEY, source=source_file or INSTITUTION)
     flatex = accounts.get(FLATEX_ACCOUNT_KEY.upper()) or _sibling(cash, "Flatex")
+    positions = _sibling(cash, POSITIONS_LEAF)
+    gains = accounts.get(GAINS_ACCOUNT_KEY.upper(), DEFAULT_GAINS_ACCOUNT)
+    booked_positions = False
+    held: dict[str, Decimal] = {}
 
     rows = [
         row
@@ -183,6 +291,21 @@ def parse_from_io(handle, accounts: Accounts, *, source_file: str = "") -> Itera
 
         counter = _counter_account(description, cash, flatex)
 
+        postings = _postings(
+            held=held,
+            description=description,
+            isin=isin,
+            product=product,
+            amount=amount,
+            currency=currency,
+            cash=cash,
+            counter=counter,
+            positions=positions,
+            gains=gains,
+        )
+        if any(posting.account == positions for posting in postings):
+            booked_positions = True
+
         yield Transaction(
             meta=meta,
             date=datetime.strptime(f"{date} {time}", "%d-%m-%Y %H:%M").date(),
@@ -191,14 +314,21 @@ def parse_from_io(handle, accounts: Accounts, *, source_file: str = "") -> Itera
             narration=narration,
             tags=frozenset(),
             links=frozenset(),
-            postings=(
-                Posting(account=cash, units=Amount(amount, currency)),
-                Posting(account=counter, units=None),
-            ),
+            postings=postings,
         )
 
         if row[9]:
             last_balance[row[9]] = (row[0], parse_decimal(row[10]))
+
+    if booked_positions and rows:
+        # Disposals need FIFO: the export says what was sold, never which lot it came from.
+        yield Open(
+            meta={"institution": INSTITUTION},
+            date=datetime.strptime(rows[0][0], "%d-%m-%Y").date(),
+            account=positions,
+            currencies=(),
+            booking=BOOKING,
+        )
 
     # The balance column is the whole point of insisting on background transactions: it is the
     # only independent check that this file has been read correctly.
@@ -214,6 +344,66 @@ def parse_from_io(handle, accounts: Accounts, *, source_file: str = "") -> Itera
             amount=Amount(number, currency),
             tolerance=Decimal(BALANCE_TOLERANCE),
         )
+
+
+def _postings(
+    *,
+    held: dict[str, Decimal],
+    description: str,
+    isin: str,
+    product: str,
+    amount: Decimal,
+    currency: str,
+    cash: str,
+    counter: str | None,
+    positions: str,
+    gains: str,
+) -> tuple[Posting, ...]:
+    """Postings for one row: a trade with its lot where that can be proven, else cash only.
+
+    ``held`` tracks what this parser has actually booked, so a disposal is only written when
+    there is something to dispose of. Zero-cash acquisitions — spin-offs, and splits whose
+    rows carry no amount — cannot be proven against a cash figure and so are never booked;
+    without this check the later sale of those shares would reduce a position that does not
+    exist, and Beancount rejects the whole transaction.
+    """
+    trade = parse_trade(description, amount, currency) if counter is None else None
+    commodity = commodity_of(isin, product) if trade else None
+
+    if trade and commodity and trade[0] < 0 and held.get(commodity, Decimal(0)) < -trade[0]:
+        trade = None  # more shares than this parser ever created; stay cash-only
+
+    if trade and commodity:
+        quantity, price = trade
+        held[commodity] = held.get(commodity, Decimal(0)) + quantity
+        if quantity > 0:
+            return (
+                Posting(account=cash, units=Amount(amount, currency)),
+                Posting(
+                    account=positions,
+                    units=Amount(quantity, commodity),
+                    # The cash paid, as a total: a quoted unit price rounded to four decimals
+                    # rarely multiplies back to the cent that actually left the account.
+                    cost=Cost(abs(amount), currency, None, None, total=True),
+                ),
+            )
+        # A disposal names no lot, so the booking method picks one and the elided gain
+        # posting absorbs whatever the difference turns out to be.
+        return (
+            Posting(
+                account=positions,
+                units=Amount(quantity, commodity),
+                cost=EMPTY_COST,
+                price=Amount(price, currency),
+            ),
+            Posting(account=cash, units=Amount(amount, currency)),
+            Posting(account=gains, units=None),
+        )
+
+    return (
+        Posting(account=cash, units=Amount(amount, currency)),
+        Posting(account=counter, units=None),
+    )
 
 
 def _sibling(account: str, leaf: str) -> str:

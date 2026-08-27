@@ -38,10 +38,17 @@ class Amount(NamedTuple):
 
 
 class Cost(NamedTuple):
-    number: Decimal
-    currency: str
+    #: None renders as Beancount's empty cost spec ``{}``, which asks the booking method to
+    #: choose the lot rather than naming it. Required on disposals: a broker export says what
+    #: was sold, never which lot it came from.
+    number: Decimal | None
+    currency: str | None
     date: Date | None
     label: str | None
+    #: True renders Beancount's ``{{total}}`` rather than ``{per-unit}``. A quoted unit price
+    #: times a quantity often misses the cash actually paid by a fraction of a cent, and a
+    #: transaction that does not balance to the cent is rejected outright.
+    total: bool = False
 
 
 class Posting(NamedTuple):
@@ -79,6 +86,9 @@ class Open(NamedTuple):
     date: Date
     account: str
     currencies: tuple[str, ...]
+    #: Lot-matching method for disposals. Beancount defaults to STRICT, which requires a sale
+    #: to name a lot exactly; a broker export never does, so position accounts need "FIFO".
+    booking: str | None = None
 
 
 class Price(NamedTuple):
@@ -87,6 +97,9 @@ class Price(NamedTuple):
     currency: str
     amount: Amount
 
+
+#: Disposal at whatever lot the booking method selects.
+EMPTY_COST = Cost(None, None, None, None)
 
 #: Anything the renderer knows how to serialize.
 type Directive = Transaction | Balance | Open | Price

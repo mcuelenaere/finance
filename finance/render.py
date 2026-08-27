@@ -54,12 +54,16 @@ def _amount(amount: Amount) -> str:
 
 
 def _cost(cost: Cost) -> str:
+    if cost.number is None:
+        # Beancount's empty cost spec: let the booking method pick the lot.
+        return "{}"
     parts = [_amount(Amount(cost.number, cost.currency))]
     if cost.date is not None:
         parts.append(cost.date.isoformat())
     if cost.label is not None:
         parts.append(_string(cost.label))
-    return "{" + ", ".join(parts) + "}"
+    body = ", ".join(parts)
+    return "{{" + body + "}}" if cost.total else "{" + body + "}"
 
 
 def _meta_value(value: object) -> str:
@@ -118,7 +122,8 @@ def render_directive(directive: Directive) -> str:
 
     if isinstance(directive, Open):
         currencies = f" {','.join(directive.currencies)}" if directive.currencies else ""
-        lines = [f"{date} open {directive.account}{currencies}"]
+        booking = f' "{directive.booking}"' if directive.booking else ""
+        lines = [f"{date} open {directive.account}{currencies}{booking}"]
         lines.extend(_meta_lines(directive.meta, "  "))
         return "\n".join(lines)
 

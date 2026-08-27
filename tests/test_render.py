@@ -226,3 +226,26 @@ def test_posting_amounts_declines_to_guess_when_ambiguous():
         )
     )
     assert len(posting_amounts(multi_currency)) == 2
+
+
+def test_open_renders_a_booking_method():
+    """Position accounts need FIFO: a broker export never names the lot being sold."""
+    out = render_directive(
+        Open(
+            meta={},
+            date=date(2024, 3, 1),
+            account="Assets:Investments:Degiro:Positions",
+            currencies=(),
+            booking="FIFO",
+        )
+    )
+
+    assert out == '2024-03-01 open Assets:Investments:Degiro:Positions "FIFO"'
+
+
+def test_open_without_a_booking_method_is_unchanged():
+    out = render_directive(
+        Open(meta={}, date=date(2024, 3, 1), account="Assets:X", currencies=("EUR",))
+    )
+
+    assert out == "2024-03-01 open Assets:X EUR"
