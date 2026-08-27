@@ -167,3 +167,17 @@ def test_transfer_detected_when_the_export_uses_the_other_spelling():
 
     match = rules.classify(txn(payee="MY OWN NAME", counterparty_iban="BE53 1234 5678 9012"))
     assert match.reason == REASON_OWN_ACCOUNT
+
+
+def test_iban_rule_matches_however_the_export_spaces_it():
+    """Banks write the same IBAN spaced or unspaced; a rule author cannot know which.
+
+    Without this, an IBAN rule written in one form silently claims nothing when the export
+    uses the other — and a silent non-match looks identical to having no rule at all.
+    """
+    unspaced = ruleset(
+        {"field": "meta.counterparty_iban", "value": "BE53123456789012", "account": "Expenses:X"}
+    )
+
+    for spelling in ("BE53123456789012", "BE53 1234 5678 9012"):
+        assert unspaced.classify(txn(counterparty_iban=spelling)).account == "Expenses:X"

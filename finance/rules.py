@@ -89,6 +89,19 @@ def field_value(txn: Transaction, field: str) -> str | None:
     return normalize_text(str(raw))
 
 
+def _matches(rule: Rule, value: str) -> bool:
+    """Whether ``rule`` claims ``value``, ignoring how an identifier happens to be spaced.
+
+    Banks write the same IBAN both spaced and unspaced, and a rule author has no way to know
+    which a given export used. Trying the space-free form too means a rule written either way
+    matches either way, rather than silently claiming nothing.
+    """
+    if rule.regex.search(value):
+        return True
+    compact = value.replace(" ", "")
+    return compact != value and bool(rule.regex.search(compact))
+
+
 class Ruleset(NamedTuple):
     rules: tuple[Rule, ...]
     own_accounts: Mapping[str, str]
@@ -122,7 +135,7 @@ class Ruleset(NamedTuple):
 
         for rule in self.rules:
             value = field_value(txn, rule.field)
-            if value and rule.regex.search(value):
+            if value and _matches(rule, value):
                 return Match(rule.account, REASON_RULE, rule)
 
         return Match(self.fallback_account, REASON_FALLBACK)
@@ -166,13 +179,23 @@ def resolve_all(ruleset: Ruleset, transactions: Iterable[Transaction]) -> list[T
     return [ruleset.resolve(txn) for txn in transactions]
 
 
+def needs_rule(txn: Transaction) -> bool:
+    """Whether any posting is still waiting for the rules engine.
+
+    A parser that already knows both sides of a transaction — a DEGIRO cash sweep, say —
+    leaves nothing to classify. Counting those as unmatched pads the review queue with
+    hundreds of rows no rule can improve.
+    """
+    return any(posting.account is None for posting in txn.postings)
+
+
 def unmatched(
     ruleset: Ruleset, transactions: Iterable[Transaction]
 ) -> list[tuple[Transaction, Posting | None]]:
     """Transactions that fell through to the fallback account — the rule-writing queue."""
     out = []
     for txn in transactions:
-        if not ruleset.classify(txn).matched:
+        if needs_rule(txn) and not ruleset.classify(txn).matched:
             own = next((p for p in txn.postings if p.account is not None), None)
             out.append((txn, own))
     return out
