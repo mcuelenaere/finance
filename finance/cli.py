@@ -5,6 +5,7 @@ Three commands, matching the three things this repo does:
 ``build``   regenerate ``ledger/<slug>/generated.beancount`` from raw exports plus rules
 ``review``  print the transactions no rule claimed — the queue an agent works through
 ``check``   validate with ``bean-check`` and report the transfer clearing account
+``prices``  turn a Delta portfolio snapshot into price directives
 
 ``review`` is the only AI touchpoint, and it is deliberately a *report*: an agent reads it,
 edits the rules file, and re-runs ``build``. No transaction is ever sent to a model.
@@ -13,6 +14,7 @@ edits the rules file, and re-runs ``build``. No transaction is ever sent to a mo
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
 import subprocess
 import sys
@@ -21,12 +23,15 @@ from collections.abc import Iterable
 from datetime import date as Date
 from datetime import timedelta
 from decimal import Decimal
+from pathlib import Path
 from typing import NamedTuple
 
 from finance import config as config_module
 from finance.dedup import dedupe, dedupe_directives, duplicate_report
 from finance.models import Balance, Directive, Transaction, posting_amounts
 from finance.parsers import FORMATS, UnknownAccountError
+from finance.prices import match
+from finance.prices import render as render_prices
 from finance.render import render
 from finance.rules import Ruleset, needs_rule
 
@@ -252,6 +257,39 @@ def cmd_check(slug: str) -> int:
     return _transfer_report(cfg.ruleset, resolved) or status
 
 
+def cmd_prices(slug: str, snapshot: str, as_of: Date | None, portfolio: str) -> int:
+    """Write price directives from a Delta snapshot an agent fetched over MCP.
+
+    Deliberately takes a file rather than calling anything: no build step may depend on a
+    network service or a model, so the fetch happens outside and only the text lands here.
+    """
+    cfg, _, transactions, _ = _load(slug)
+    resolved = [cfg.ruleset.resolve(txn) for txn in transactions]
+
+    holdings: dict[str, Decimal] = defaultdict(Decimal)
+    names: dict[str, str] = {}
+    for txn in resolved:
+        for posting in txn.postings:
+            if posting.units and posting.units.currency not in ("EUR", "USD", "JPY", "GBP"):
+                holdings[posting.units.currency] += posting.units.number
+                if txn.meta.get("product"):
+                    names.setdefault(posting.units.currency, str(txn.meta["product"]))
+    open_holdings = {c: q for c, q in holdings.items() if q != 0}
+
+    assets = json.loads(Path(snapshot).read_text(encoding="utf-8")).get("assets", [])
+    quotes, unpriced = match(open_holdings, names, assets)
+
+    path = cfg.output_dir / "prices.beancount"
+    path.write_text(
+        render_prices(quotes, unpriced, as_of=as_of or Date.today(), portfolio=portfolio),
+        encoding="utf-8",
+    )
+    print(f"wrote {path} ({len(quotes)} priced, {len(unpriced)} not)")
+    for item in unpriced:
+        print(f"  unpriced: {item.commodity:<14} {item.name[:40]:<40} ({item.reason})")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="finance", description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -266,6 +304,12 @@ def main(argv: list[str] | None = None) -> int:
     check = sub.add_parser("check", help="validate the ledger and the transfer clearing account")
     check.add_argument("ledger")
 
+    prices = sub.add_parser("prices", help="write price directives from a Delta snapshot")
+    prices.add_argument("ledger")
+    prices.add_argument("snapshot", help="JSON as returned by Delta's get_portfolio")
+    prices.add_argument("--as-of", type=Date.fromisoformat, default=None)
+    prices.add_argument("--portfolio", default="Investments")
+
     args = parser.parse_args(argv)
 
     try:
@@ -275,6 +319,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_review(args.ledger, args.limit)
         if args.command == "check":
             return cmd_check(args.ledger)
+        if args.command == "prices":
+            return cmd_prices(args.ledger, args.snapshot, args.as_of, args.portfolio)
     except FileNotFoundError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
