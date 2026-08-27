@@ -1,4 +1,19 @@
 .idea/
-venv/
+.DS_Store
+__pycache__/
 *.pyc
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# Raw financial exports, the rules derived from them, and the generated ledger all contain
+# account numbers, merchant names and balances. The GitHub remote for this repo is PUBLIC, so
+# none of it can be committed. See the privacy note in README.md.
 data/
+rules/*
+!rules/example.yml
+ledger/
+
+# generated charts from the old pygal pipeline
+*.svg
