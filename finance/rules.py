@@ -68,11 +68,27 @@ def parse_rule(config: Mapping[str, object]) -> Rule:
     return Rule(field=str(config["field"]), regex=pattern, account=str(config["account"]))
 
 
+#: Fields that ``text`` searches, in the order a human would read them.
+TEXT_FIELDS = ("payee", "narration", "description", "detail", "message")
+
+
 def field_value(txn: Transaction, field: str) -> str | None:
     """Read a matchable field off a transaction.
 
-    Supported: ``payee``, ``narration``, and ``meta.<key>`` for anything a parser recorded.
+    Supported: ``payee``, ``narration``, ``meta.<key>`` for anything a parser recorded, and
+    ``text`` for all of the descriptive fields at once.
+
+    ``text`` exists because the same information lands in a different field depending on the
+    bank: a transfer memo is the narration in one export, the description in another and a
+    detail block in a third. Without it, one fact needs the same rule written three times, and
+    the copy that is missing is invisible.
     """
+    if field == "text":
+        parts = [txn.payee or "", txn.narration or ""]
+        parts += [str(txn.meta.get(key, "")) for key in TEXT_FIELDS[2:]]
+        joined = normalize_text(" ".join(parts))
+        return joined or None
+
     if field == "payee":
         raw = txn.payee
     elif field == "narration":
@@ -81,7 +97,7 @@ def field_value(txn: Transaction, field: str) -> str | None:
         raw = txn.meta.get(field[len("meta.") :])
     else:
         raise ValueError(
-            f"unknown rule field {field!r}: expected 'payee', 'narration' or 'meta.<key>'"
+            f"unknown rule field {field!r}: expected 'payee', 'narration', 'text' or 'meta.<key>'"
         )
 
     if raw is None:

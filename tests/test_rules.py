@@ -181,3 +181,26 @@ def test_iban_rule_matches_however_the_export_spaces_it():
 
     for spelling in ("BE53123456789012", "BE53 1234 5678 9012"):
         assert unspaced.classify(txn(counterparty_iban=spelling)).account == "Expenses:X"
+
+
+def test_text_field_searches_every_descriptive_field():
+    """The same memo lands in a different field depending on the bank.
+
+    A transfer memo is the narration in one export, the description in another and a detail
+    block in a third. Without `text`, one fact needs the same rule written three times — and
+    the copy that is missing is invisible, since a non-matching rule looks like no rule.
+    """
+    rules = ruleset({"field": "text", "regex": "(?i)share sale", "account": "Assets:X"})
+
+    assert rules.classify(txn(narration="Share Sale Realo")).account == "Assets:X"
+    assert rules.classify(txn(description="Share Sale Realo")).account == "Assets:X"
+    assert rules.classify(txn(detail="Mededeling: share sale realo")).account == "Assets:X"
+    assert rules.classify(txn(payee="Share Sale Ltd")).account == "Assets:X"
+    assert rules.classify(txn(narration="something else")).account == "Expenses:Unknown"
+
+
+def test_unknown_field_names_text_as_an_option():
+    rules = ruleset({"field": "nonsense", "value": "x", "account": "X"})
+
+    with pytest.raises(ValueError, match="'text'"):
+        rules.classify(txn(payee="x"))
