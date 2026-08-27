@@ -12,6 +12,7 @@ from datetime import date as Date
 from datetime import datetime
 from decimal import Decimal
 
+from finance.iban import variants
 from finance.text import normalize_identifier
 
 #: Maps an identifier appearing in an export (an IBAN, or a fixed key like ``degiro``) to the
@@ -29,15 +30,18 @@ class UnknownAccountError(LookupError):
 
 
 def resolve_account(accounts: Accounts, identifier: str, *, source: str = "") -> str:
+    # Every spelling is tried: a Belgian account may be named domestically in one export and
+    # by IBAN in another. See finance.iban.
     key = normalize_identifier(identifier)
-    try:
-        return accounts[key]
-    except KeyError:
-        where = f" (seen in {source})" if source else ""
-        raise UnknownAccountError(
-            f"account {identifier!r}{where} is not in own_accounts; "
-            f"add an entry keyed {key!r} to the ledger's rules file"
-        ) from None
+    for spelling in variants(key):
+        if spelling in accounts:
+            return accounts[spelling]
+
+    where = f" (seen in {source})" if source else ""
+    raise UnknownAccountError(
+        f"account {identifier!r}{where} is not in own_accounts; "
+        f"add an entry keyed {key!r} to the ledger's rules file"
+    )
 
 
 def parse_decimal(text: str) -> Decimal:

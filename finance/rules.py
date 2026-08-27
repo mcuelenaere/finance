@@ -18,6 +18,7 @@ from typing import NamedTuple
 
 import yaml
 
+from finance.iban import variants
 from finance.models import Posting, Transaction
 from finance.text import normalize_identifier, normalize_text
 
@@ -95,10 +96,18 @@ class Ruleset(NamedTuple):
     transfer_account: str
 
     def account_for_identifier(self, identifier: str | None) -> str | None:
-        """Resolve one of the user's own account identifiers to its Beancount account."""
+        """Resolve one of the user's own account identifiers to its Beancount account.
+
+        Every spelling of a Belgian account is tried, because which one an export uses is the
+        bank's choice rather than the account holder's — see :mod:`finance.iban`.
+        """
         if not identifier:
             return None
-        return self.own_accounts.get(normalize_identifier(identifier))
+        for spelling in variants(normalize_identifier(identifier)):
+            account = self.own_accounts.get(spelling)
+            if account is not None:
+                return account
+        return None
 
     def classify(self, txn: Transaction) -> Match:
         """Decide which account belongs on the unresolved side of ``txn``.

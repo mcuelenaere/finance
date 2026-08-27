@@ -143,3 +143,27 @@ def test_unknown_field_is_rejected():
 
     with pytest.raises(ValueError, match="unknown rule field"):
         rules.classify(txn(payee="x"))
+
+
+def test_own_account_matched_by_either_spelling():
+    """Belfius names an ING account by IBAN; ING names it domestically. Both are the account.
+
+    Declaring one spelling and missing the other silently books the account holder's own
+    transfers as expenses — the error that inflates net worth with nothing looking broken.
+    """
+    domestic = ruleset(own_accounts={"123-4567890-12": "Assets:ING:Checking"})
+    by_iban = ruleset(own_accounts={"BE53123456789012": "Assets:ING:Checking"})
+
+    for rules in (domestic, by_iban):
+        assert rules.account_for_identifier("123-4567890-12") == "Assets:ING:Checking"
+        assert rules.account_for_identifier("BE53 1234 5678 9012") == "Assets:ING:Checking"
+
+
+def test_transfer_detected_when_the_export_uses_the_other_spelling():
+    rules = ruleset(
+        {"field": "payee", "regex": ".*", "account": "Expenses:Food"},
+        own_accounts={"123-4567890-12": "Assets:ING:Checking"},
+    )
+
+    match = rules.classify(txn(payee="MY OWN NAME", counterparty_iban="BE53 1234 5678 9012"))
+    assert match.reason == REASON_OWN_ACCOUNT
