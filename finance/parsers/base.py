@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import date as Date
-from datetime import datetime, timedelta
+from datetime import datetime
 from decimal import Decimal
 
 from finance.text import normalize_identifier
@@ -59,14 +59,6 @@ def parse_decimal(text: str) -> Decimal:
 def parse_date(text: str) -> Date:
     """Parse ``dd/mm/yyyy``, the format every Belgian bank export here uses."""
     return datetime.strptime(text.strip(), "%d/%m/%Y").date()
-
-
-def excel_serial_to_date(serial: str | float) -> Date:
-    """Convert an Excel serial date (as Edenred exports) to a real date.
-
-    Excel counts days from 1899-12-30. The values carry a time fraction, which is dropped.
-    """
-    return Date(1899, 12, 30) + timedelta(days=int(float(serial)))
 
 
 def quantize_money(value: float | Decimal, places: str = "0.01") -> Decimal:

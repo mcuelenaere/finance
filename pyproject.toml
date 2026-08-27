@@ -5,7 +5,10 @@ description = "Parse Belgian bank/broker exports into Beancount ledgers"
 readme = "README.md"
 requires-python = ">=3.12"
 authors = [{ name = "Maurus Cuelenaere", email = "mcuelenaere@gmail.com" }]
-dependencies = ["PyYAML>=6.0"]
+dependencies = [
+    "openpyxl>=3.1.5",
+    "PyYAML>=6.0",
+]
 
 [project.urls]
 repository = "https://github.com/mcuelenaere/finance"

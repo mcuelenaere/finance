@@ -5,7 +5,6 @@ import pytest
 
 from finance.parsers.base import (
     UnknownAccountError,
-    excel_serial_to_date,
     parse_date,
     parse_decimal,
     quantize_money,
@@ -38,19 +37,6 @@ def test_parse_decimal_rejects_empty():
 
 def test_parse_date():
     assert parse_date("07/01/2020") == date(2020, 1, 7)
-
-
-@pytest.mark.parametrize(
-    "serial,expected",
-    [
-        ("44817.3800547801", date(2022, 9, 13)),
-        ("45036.519849536999", date(2023, 4, 20)),
-        (44431.536261574103, date(2021, 8, 23)),
-    ],
-)
-def test_excel_serial_to_date(serial, expected):
-    """Edenred stores dates as Excel serials with a time fraction, which is dropped."""
-    assert excel_serial_to_date(serial) == expected
 
 
 def test_quantize_money_strips_float_noise():

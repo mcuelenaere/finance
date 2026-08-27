@@ -1,8 +1,14 @@
 """DEGIRO cash account export (``Account.csv``).
 
 This is the *cash* ledger — deposits, withdrawals, fees, dividends, taxes and the cash leg of
-trades. It carries no share counts, so positions and cost basis need DEGIRO's separate
-``Transactions.csv``.
+trades.
+
+It is also the best source for positions, despite the lack of a quantity column. Trade rows
+describe themselves as ``Koop|Verkoop <quantity> @ <price> <currency>`` in the description, and
+556 rows here parse that way with all 114 fractional quantities intact. DEGIRO's separate
+``Transactions.csv`` looks like the obvious choice for cost basis and is not: it covers fewer
+trades (498) and leaves the quantity column *empty* for fractional crypto, so the size of those
+positions is simply absent. When lots are implemented, parse them from the descriptions here.
 
 Two things about this format matter enough to spell out, because getting either wrong
 overstates the account by six figures without any error surfacing.
