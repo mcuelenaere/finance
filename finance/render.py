@@ -124,7 +124,14 @@ def render_directive(directive: Directive) -> str:
 
     if isinstance(directive, Balance):
         account = f"{date} balance {directive.account}"
-        lines = [f"{account.ljust(ACCOUNT_WIDTH)} {_amount(directive.amount)}".rstrip()]
+        amount = _amount(directive.amount)
+        if directive.tolerance is not None:
+            # Beancount puts the tolerance between the number and the currency.
+            amount = (
+                f"{_number(directive.amount.number)} ~ {_number(directive.tolerance)} "
+                f"{directive.amount.currency}"
+            )
+        lines = [f"{account.ljust(ACCOUNT_WIDTH)} {amount}".rstrip()]
         lines.extend(_meta_lines(directive.meta, "  "))
         return "\n".join(lines)
 

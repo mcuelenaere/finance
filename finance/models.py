@@ -69,6 +69,9 @@ class Balance(NamedTuple):
     date: Date
     account: str
     amount: Amount
+    #: Permitted divergence, rendered as Beancount's ``~ tolerance`` suffix. Beancount's own
+    #: Balance carries this field too; it defaults to None here purely for call-site brevity.
+    tolerance: Decimal | None = None
 
 
 class Open(NamedTuple):
