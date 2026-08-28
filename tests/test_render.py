@@ -298,3 +298,53 @@ def test_transactions_without_a_sequence_keep_their_previous_order():
     out = render([plain("10", "second"), plain("-5", "first")])
 
     assert out.index("first") < out.index("second")
+
+
+def test_an_empty_cost_can_name_its_currency_without_naming_a_number():
+    """Beancount infers an empty cost spec's currency from the rest of the transaction, so a
+    disposal whose proceeds are in dollars is read as having a dollar cost basis and matches
+    none of the euro-cost lots. Naming the currency alone still lets the booking method pick
+    the lot, but pins which lots are eligible."""
+    txn = Transaction(
+        meta={},
+        date=date(2024, 5, 2),
+        flag=FLAG_OKAY,
+        payee=None,
+        narration="Card payment",
+        tags=frozenset(),
+        links=frozenset(),
+        postings=(
+            Posting(
+                account="Assets:Investments:Brokers:Wirex",
+                units=Amount(Decimal("-0.046397"), "ETH"),
+                cost=Cost(None, "EUR", None, None),
+            ),
+            Posting(account="Expenses:Unknown", units=Amount(Decimal("109.99"), "USD")),
+            Posting(account="Income:CapitalGains:Crypto", units=None),
+        ),
+    )
+
+    assert "-0.046397 ETH {EUR}" in render_directive(txn)
+
+
+def test_an_empty_cost_with_no_currency_still_renders_bare():
+    txn = Transaction(
+        meta={},
+        date=date(2024, 5, 2),
+        flag=FLAG_OKAY,
+        payee=None,
+        narration="Sale",
+        tags=frozenset(),
+        links=frozenset(),
+        postings=(
+            Posting(
+                account="Assets:Investments:Brokers:Degiro",
+                units=Amount(Decimal("-2"), "AAPL"),
+                cost=Cost(None, None, None, None),
+            ),
+            Posting(account="Assets:Cash:Degiro:Main", units=Amount(Decimal("300.00"), "EUR")),
+            Posting(account="Income:CapitalGains:Broker", units=None),
+        ),
+    )
+
+    assert "-2 AAPL {}" in render_directive(txn)

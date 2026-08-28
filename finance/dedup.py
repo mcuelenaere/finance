@@ -112,7 +112,12 @@ def _directive_key(directive: Directive) -> tuple[object, ...] | None:
     if isinstance(directive, Balance):
         return ("balance", directive.account, directive.date, directive.amount)
     if isinstance(directive, Open):
-        return ("open", directive.account, directive.date, directive.currencies)
+        # Deliberately *not* keyed on the date. An account is opened once, and Beancount
+        # rejects a second directive for it whatever date it carries — so an export split
+        # across several files, each deriving its own earliest date, must collapse to one.
+        # Which one is settled by :func:`dedupe_directives`, not here: it has to be the
+        # earliest, or the account opens after it is first used.
+        return ("open", directive.account)
     if isinstance(directive, Price):
         return ("price", directive.currency, directive.date, directive.amount)
     return None
@@ -129,16 +134,28 @@ def dedupe_directives(directives: Iterable[Directive]) -> list[Directive]:
     The key includes the amount deliberately: two files asserting *different* balances for the
     same account and date is a genuine inconsistency, and it should reach Beancount and be
     reported rather than be silently resolved here.
+
+    ``Open`` is the exception, and is collapsed to the **earliest** date rather than the first
+    one seen. An export that arrives as several files — paginated pages, or one file per
+    statement period — has each file derive an opening date from the rows it happens to hold,
+    and keeping whichever was read first would open the account after its own earliest
+    transaction. Ordering of the output is left alone otherwise, so this stays deterministic.
     """
-    seen: set[tuple[object, ...]] = set()
+    seen: dict[tuple[object, ...], int] = {}
     out: list[Directive] = []
     for directive in directives:
         key = _directive_key(directive)
         if key is None:
             out.append(directive)
-        elif key not in seen:
-            seen.add(key)
+            continue
+        index = seen.get(key)
+        if index is None:
+            seen[key] = len(out)
             out.append(directive)
+        elif isinstance(directive, Open):
+            kept = out[index]
+            if isinstance(kept, Open) and directive.date < kept.date:
+                out[index] = directive
     return out
 
 

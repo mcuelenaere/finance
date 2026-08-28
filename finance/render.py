@@ -55,8 +55,12 @@ def _amount(amount: Amount) -> str:
 
 def _cost(cost: Cost) -> str:
     if cost.number is None:
-        # Beancount's empty cost spec: let the booking method pick the lot.
-        return "{}"
+        # Beancount's empty cost spec: let the booking method pick the lot. Naming the currency
+        # without a number still lets it pick, but pins which lots are eligible — needed when a
+        # disposal's proceeds are in a different currency than the cost, because Beancount
+        # otherwise infers the cost currency from the rest of the transaction and matches
+        # nothing.
+        return "{" + cost.currency + "}" if cost.currency else "{}"
     parts = [_amount(Amount(cost.number, cost.currency))]
     if cost.date is not None:
         parts.append(cost.date.isoformat())

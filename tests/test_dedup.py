@@ -3,8 +3,15 @@
 from datetime import date
 from decimal import Decimal
 
-from finance.dedup import dedupe
-from finance.models import FLAG_OKAY, Amount, Posting, Transaction
+from finance.dedup import dedupe, dedupe_directives
+from finance.models import (
+    FLAG_OKAY,
+    Amount,
+    Balance,
+    Open,
+    Posting,
+    Transaction,
+)
 
 ACCOUNT = "Assets:ING:Checking"
 
@@ -111,7 +118,6 @@ def test_identical_balance_directives_are_collapsed():
 
     from finance.dedup import dedupe_directives
     from finance.models import Amount as A
-    from finance.models import Balance
 
     def bal(amount, source):
         return Balance(
@@ -133,7 +139,6 @@ def test_conflicting_balance_directives_are_kept():
 
     from finance.dedup import dedupe_directives
     from finance.models import Amount as A
-    from finance.models import Balance
 
     directives = [
         Balance(meta={}, date=D(2026, 8, 27), account=ACCOUNT, amount=A(Decimal("1"), "EUR")),
@@ -214,3 +219,41 @@ def test_genuine_same_day_repeats_still_survive_without_any_reference():
     ]
 
     assert len(dedupe(rows)) == 2
+
+
+def open_directive(day: int, *, source: str, account: str = "Assets:Investments:Brokers:Wirex"):
+    return Open(
+        meta={"institution": "wirex", "source_file": source},
+        date=date(2024, 5, day),
+        account=account,
+        currencies=(),
+        booking="FIFO",
+    )
+
+
+def test_an_account_is_opened_once_at_the_earliest_date_any_file_implies():
+    """An export arriving as several files — paginated pages, or one per statement period — has
+    each file derive an opening date from the rows it happens to hold. Beancount rejects the
+    second directive whatever date it carries, and keeping whichever file was read first would
+    open the account after its own earliest transaction."""
+    kept = dedupe_directives(
+        [
+            open_directive(9, source="page_1.json"),
+            open_directive(2, source="page_2.json"),
+            open_directive(20, source="page_3.json"),
+        ]
+    )
+
+    (opened,) = kept
+    assert opened.date == date(2024, 5, 2)
+
+
+def test_opens_for_different_accounts_both_survive():
+    kept = dedupe_directives(
+        [
+            open_directive(2, source="a.json", account="Assets:Investments:Brokers:Wirex"),
+            open_directive(3, source="b.json", account="Assets:Investments:Brokers:BUX"),
+        ]
+    )
+
+    assert len(kept) == 2
