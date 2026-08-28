@@ -49,6 +49,11 @@ class LedgerConfig(NamedTuple):
     def main_path(self) -> Path:
         return self.output_dir / "main.beancount"
 
+    @property
+    def manual_path(self) -> Path:
+        """Hand-written entries. Never generated, never read by the build — only reported on."""
+        return self.output_dir / "manual.beancount"
+
 
 def config_path(slug: str) -> Path:
     return RULES_DIR / f"{slug}.yml"

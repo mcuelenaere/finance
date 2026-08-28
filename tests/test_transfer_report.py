@@ -3,7 +3,7 @@
 from datetime import date
 from decimal import Decimal
 
-from finance.cli import _transfer_report
+from finance.cli import _manual_postings, _transfer_report
 from finance.models import FLAG_OKAY, Amount, Posting, Transaction
 from finance.rules import Ruleset
 
@@ -87,3 +87,85 @@ def test_unknown_counterparty_still_reported(capsys):
     assert _transfer_report(ruleset(OWN), [leg("Assets:A", "-40", "BE99 8888 7777 6666")]) == 1
 
     assert "BE998…666" in capsys.readouterr().out
+
+
+# --- hand-written legs ------------------------------------------------------------------
+# The report is built from the parsed exports, which is where the pairing logic lives. A leg no
+# export contains can only be recovered by hand, and then the report goes on flagging a gap that
+# is already closed — a detector that cannot be satisfied is one people learn to ignore.
+
+
+def write_manual(tmp_path, *lines):
+    path = tmp_path / "manual.beancount"
+    path.write_text("\n".join(lines), encoding="utf-8")
+    return path
+
+
+def test_a_hand_written_leg_is_summed(tmp_path):
+    path = write_manual(
+        tmp_path,
+        '2019-09-04 * "ING" "Closing transfer, leg missing from the export"',
+        "  Assets:ING:Savings2   -1355.82 EUR",
+        "  Assets:Transfers       1355.82 EUR",
+    )
+    totals, unreadable = _manual_postings(path, TRANSFERS)
+
+    assert totals == {"EUR": Decimal("1355.82")}
+    assert unreadable == 0
+
+
+def test_currencies_are_kept_apart(tmp_path):
+    path = write_manual(
+        tmp_path,
+        "  Assets:Transfers    100.00 EUR",
+        "  Assets:Transfers     -40.00 USD",
+        "  Assets:Transfers      25.50 EUR",
+    )
+    totals, _ = _manual_postings(path, TRANSFERS)
+
+    assert totals == {"EUR": Decimal("125.50"), "USD": Decimal("-40.00")}
+
+
+def test_a_commented_out_posting_is_ignored(tmp_path):
+    """The file documents alternatives in comments; they are not entries."""
+    path = write_manual(
+        tmp_path,
+        ";; Assets:Transfers    999.00 EUR",
+        "  Assets:Transfers      10.00 EUR",
+    )
+    totals, unreadable = _manual_postings(path, TRANSFERS)
+
+    assert totals == {"EUR": Decimal("10.00")}
+    assert unreadable == 0
+
+
+def test_another_account_is_not_counted(tmp_path):
+    """`Assets:TransfersOld` contains the name but is a different account."""
+    path = write_manual(
+        tmp_path,
+        "  Assets:TransfersOld   500.00 EUR",
+        "  Assets:Transfers       10.00 EUR",
+    )
+    totals, _ = _manual_postings(path, TRANSFERS)
+
+    assert totals == {"EUR": Decimal("10.00")}
+
+
+def test_an_unreadable_line_is_counted_not_swallowed(tmp_path):
+    """Silence is the risk of scanning instead of parsing, so it has to be visible."""
+    path = write_manual(
+        tmp_path,
+        "  Assets:Transfers      10.00 EUR",
+        "  Assets:Transfers   {something the scanner cannot read}",
+    )
+    totals, unreadable = _manual_postings(path, TRANSFERS)
+
+    assert totals == {"EUR": Decimal("10.00")}
+    assert unreadable == 1
+
+
+def test_a_missing_file_is_not_an_error(tmp_path):
+    totals, unreadable = _manual_postings(tmp_path / "nope.beancount", TRANSFERS)
+
+    assert totals == {}
+    assert unreadable == 0

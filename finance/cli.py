@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -22,7 +23,7 @@ from collections import defaultdict
 from collections.abc import Iterable
 from datetime import date as Date
 from datetime import timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import NamedTuple
 
@@ -150,7 +151,49 @@ def _mask(identifier: str) -> str:
     return f"{compact[:5]}…{compact[-3:]}" if len(compact) > 9 else compact
 
 
-def _transfer_report(ruleset: Ruleset, directives: Iterable[Directive]) -> int:
+#: A posting line in a Beancount file: an account, an amount, a currency. Hand-written entries
+#: and generated ones both use this shape, which is what makes scanning viable.
+POSTING_LINE = re.compile(
+    r"^\s+(?P<account>[A-Z][A-Za-z0-9:-]*)\s+(?P<number>-?[\d,.]+)\s+(?P<currency>[A-Z][A-Z0-9]*)\s*$"
+)
+
+
+def _manual_postings(path: Path, account: str) -> tuple[dict[str, Decimal], int]:
+    """Sum the hand-written postings to ``account``, plus a count of lines it could not read.
+
+    The clearing report is built from parsed exports, which is where the pairing logic lives —
+    but a leg that no export contains can only be recovered by hand, and then the report goes
+    on flagging it forever. A detector that cannot be satisfied is one people learn to ignore,
+    which costs more than the check is worth.
+
+    Scanned rather than parsed: beancount is not a dependency here, and a full parse would be a
+    subprocess. The risk of a scanner is silence, so unreadable candidate lines are counted and
+    surfaced rather than skipped quietly.
+    """
+    totals: dict[str, Decimal] = defaultdict(Decimal)
+    unreadable = 0
+    if not path.exists():
+        return totals, unreadable
+
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if account not in line or line.lstrip().startswith(";"):
+            continue
+        match = POSTING_LINE.match(line)
+        if not match or match.group("account") != account:
+            unreadable += 1
+            continue
+        try:
+            totals[match.group("currency")] += Decimal(match.group("number").replace(",", ""))
+        except InvalidOperation:
+            unreadable += 1
+    return totals, unreadable
+
+
+def _transfer_report(
+    ruleset: Ruleset,
+    directives: Iterable[Directive],
+    manual_path: Path | None = None,
+) -> int:
     """Report the clearing account balance, which should net to zero once legs pair up.
 
     A bare total is not actionable — the useful question is always *which* counterparty is
@@ -185,14 +228,35 @@ def _transfer_report(ruleset: Ruleset, directives: Iterable[Directive]) -> int:
             if directive.date <= cutoff:
                 stale += 1
 
-    outstanding = {c: n for c, n in per_currency.items() if n != 0}
+    # Legs recovered by hand count too. Without them the report keeps flagging a gap that has
+    # already been closed, and the routes below cannot show it: a hand-written entry has no
+    # counterparty metadata, so it belongs to no route.
+    manual, unreadable = _manual_postings(manual_path, account) if manual_path else ({}, 0)
+    combined = dict(per_currency)
+    for currency, number in manual.items():
+        combined[currency] = combined.get(currency, Decimal(0)) + number
+
+    outstanding = {c: n for c, n in combined.items() if n != 0}
     if not outstanding:
         print(f"{account}: settles to zero")
+        if manual:
+            print("  (after hand-written entries; the exports alone do not settle)")
         return 0
 
     print(f"{account}: does NOT settle to zero")
     for currency, number in sorted(outstanding.items()):
         print(f"  {number} {currency}")
+    if manual:
+        print("  of which, from the exports / from hand-written entries:")
+        for currency in sorted(set(per_currency) | set(manual)):
+            generated = per_currency.get(currency, Decimal(0))
+            by_hand = manual.get(currency, Decimal(0))
+            print(f"    {generated:>12} / {by_hand:>12} {currency}")
+    if unreadable:
+        print(
+            f"  NOTE {unreadable} line(s) naming {account} in {manual_path} could not be read,"
+            f" so this total may be incomplete."
+        )
 
     unpaired = sorted(
         ((route, cur, net, n) for (route, cur), (net, n) in per_route.items() if net != 0),
@@ -299,7 +363,7 @@ def cmd_check(slug: str) -> int:
     print(f"balance assertions emitted: {len(balances)}")
 
     _direction_report(cfg.ruleset, transactions)
-    return _transfer_report(cfg.ruleset, resolved) or status
+    return _transfer_report(cfg.ruleset, resolved, cfg.manual_path) or status
 
 
 def cmd_prices(slug: str, snapshot: str, as_of: Date | None, portfolio: str) -> int:
