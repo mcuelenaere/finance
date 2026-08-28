@@ -366,11 +366,30 @@ def cmd_check(slug: str) -> int:
     return _transfer_report(cfg.ruleset, resolved, cfg.manual_path) or status
 
 
-def cmd_prices(slug: str, snapshot: str, as_of: Date | None, portfolio: str) -> int:
-    """Write price directives from a Delta snapshot an agent fetched over MCP.
+#: Keys a snapshot may hold its asset list under. `get_portfolio` returns `assets`; an export
+#: saved under `data/` for its transactions carries the same shape as `positions`.
+SNAPSHOT_KEYS = ("assets", "positions")
 
-    Deliberately takes a file rather than calling anything: no build step may depend on a
+
+def _snapshot_assets(path: str) -> list[dict]:
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    for key in SNAPSHOT_KEYS:
+        found = payload.get(key)
+        if found:
+            return list(found)
+    return []
+
+
+def cmd_prices(slug: str, snapshots: list[str], as_of: Date | None, portfolio: str) -> int:
+    """Write price directives from Delta snapshots an agent fetched over MCP.
+
+    Deliberately takes files rather than calling anything: no build step may depend on a
     network service or a model, so the fetch happens outside and only the text lands here.
+
+    Several snapshots are accepted because holdings are spread over several Delta portfolios,
+    and this command rewrites the whole price file — so passing one portfolio at a time would
+    silently drop every other portfolio's prices. Anything already saved under `data/` for its
+    transactions can be passed straight in, since it carries the same asset shape.
     """
     cfg, _, transactions, _ = _load(slug)
     resolved = [cfg.ruleset.resolve(txn) for txn in transactions]
@@ -385,7 +404,9 @@ def cmd_prices(slug: str, snapshot: str, as_of: Date | None, portfolio: str) -> 
                     names.setdefault(posting.units.currency, str(txn.meta["product"]))
     open_holdings = {c: q for c, q in holdings.items() if q != 0}
 
-    assets = json.loads(Path(snapshot).read_text(encoding="utf-8")).get("assets", [])
+    assets: list[dict] = []
+    for path in snapshots:
+        assets.extend(_snapshot_assets(path))
     quotes, unpriced = match(open_holdings, names, assets)
 
     path = cfg.output_dir / "prices.beancount"
@@ -415,7 +436,11 @@ def main(argv: list[str] | None = None) -> int:
 
     prices = sub.add_parser("prices", help="write price directives from a Delta snapshot")
     prices.add_argument("ledger")
-    prices.add_argument("snapshot", help="JSON as returned by Delta's get_portfolio")
+    prices.add_argument(
+        "snapshot",
+        nargs="+",
+        help="one or more JSON snapshots (Delta get_portfolio, or an export under data/)",
+    )
     prices.add_argument("--as-of", type=Date.fromisoformat, default=None)
     prices.add_argument("--portfolio", default="Investments")
 
