@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Mapping
+from decimal import Decimal
 from typing import NamedTuple
 
 import yaml
@@ -28,10 +29,18 @@ REASON_OWN_ACCOUNT = "own-account"
 REASON_FALLBACK = "fallback"
 
 
+#: A rule may require the money to be moving a particular way. ``in`` claims only what the
+#: account received, ``out`` only what it paid.
+DIRECTION_IN = "in"
+DIRECTION_OUT = "out"
+DIRECTIONS = (DIRECTION_IN, DIRECTION_OUT)
+
+
 class Rule(NamedTuple):
     field: str
     regex: re.Pattern[str]
     account: str
+    direction: str | None = None
 
 
 class Match(NamedTuple):
@@ -65,7 +74,43 @@ def parse_rule(config: Mapping[str, object]) -> Rule:
         if not config.get(key):
             raise ValueError(f"rule is missing {key!r}: {config!r}")
 
-    return Rule(field=str(config["field"]), regex=pattern, account=str(config["account"]))
+    direction = config.get("direction")
+    if direction is not None and direction not in DIRECTIONS:
+        raise ValueError(
+            f"rule has direction {direction!r}, expected one of {DIRECTIONS}: {config!r}"
+        )
+
+    return Rule(
+        field=str(config["field"]),
+        regex=pattern,
+        account=str(config["account"]),
+        direction=str(direction) if direction else None,
+    )
+
+
+def movement(txn: Transaction) -> Decimal | None:
+    """How much the account this statement belongs to gained (+) or paid (-).
+
+    Read off the first posting carrying an amount, which every parser fills with the leg
+    belonging to the account the file came from. That holds for anything a rule can be asked
+    about: a transaction with no unresolved posting never reaches :func:`Ruleset.classify`.
+    Returns ``None`` when there is no such amount, which a direction-constrained rule treats
+    as "not mine" rather than guessing.
+    """
+    for posting in txn.postings:
+        if posting.units is not None:
+            return posting.units.number
+    return None
+
+
+def _direction_holds(rule: Rule, txn: Transaction) -> bool:
+    """Whether ``txn`` moves money the way ``rule`` requires. Unconstrained rules always pass."""
+    if rule.direction is None:
+        return True
+    amount = movement(txn)
+    if amount is None:
+        return False
+    return amount > 0 if rule.direction == DIRECTION_IN else amount < 0
 
 
 #: Fields that ``text`` searches, in the order a human would read them.
@@ -150,6 +195,8 @@ class Ruleset(NamedTuple):
             return Match(self.transfer_account, REASON_OWN_ACCOUNT)
 
         for rule in self.rules:
+            if not _direction_holds(rule, txn):
+                continue
             value = field_value(txn, rule.field)
             if value and _matches(rule, value):
                 return Match(rule.account, REASON_RULE, rule)

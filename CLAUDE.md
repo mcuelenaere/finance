@@ -91,6 +91,14 @@ and fails silently.
 
 Repeat. `.claude/skills/categorize-transactions/` has this as an invokable skill.
 
+**Income rules keyed on a counterparty need `direction: in`.** Such a rule claims everything
+that counterparty is involved in, both ways, so a payment *back* to an employer lands as
+negative salary — which reads as a small pay cut rather than the unclassified payment it is.
+`direction` is opt-in rather than the default because a refund legitimately reverses the
+income or expense it came from, and most rules should keep claiming both ways. `finance check`
+lists the rules currently matching against their own account's direction, so the ones worth
+constraining do not have to be guessed at.
+
 ## Things that will bite you
 
 **Money moving between your own accounts is the dangerous case.** Both banks export it, so

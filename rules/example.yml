@@ -76,3 +76,19 @@ rules:
   - field: payee
     value: DEGIRO
     account: Expenses:Financial:Fees
+
+# `direction` restricts a rule to money moving one way: `in` for what the account received,
+# `out` for what it paid. Optional, and off by default because a refund legitimately reverses
+# the income or expense it came from, so most rules should claim both directions.
+#
+# Use it where the other direction can only be a mistake. A rule keyed on a counterparty is
+# the case that needs it: matching an employer's account claims *everything* involving that
+# account, so a payment back to them lands as negative salary, which looks like a small pay
+# cut rather than the unclassified payment it is.
+#
+# `finance check` lists rules matching against their own account's direction, so the ones
+# worth constraining are visible rather than needing to be guessed at.
+  - field: meta.counterparty_iban
+    value: BE12345678901234
+    account: Income:Salary
+    direction: in

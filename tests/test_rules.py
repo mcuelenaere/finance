@@ -13,7 +13,7 @@ from finance.rules import (
 )
 
 
-def txn(payee=None, narration="", **meta):
+def txn(payee=None, narration="", amount="-10", **meta):
     return Transaction(
         meta={"institution": "test", **meta},
         date=date(2024, 3, 1),
@@ -23,7 +23,7 @@ def txn(payee=None, narration="", **meta):
         tags=frozenset(),
         links=frozenset(),
         postings=(
-            Posting(account="Assets:Belfius:Checking", units=Amount(Decimal("-10"), "EUR")),
+            Posting(account="Assets:Belfius:Checking", units=Amount(Decimal(amount), "EUR")),
             Posting(account=None, units=None),
         ),
     )
@@ -204,3 +204,76 @@ def test_unknown_field_names_text_as_an_option():
 
     with pytest.raises(ValueError, match="'text'"):
         rules.classify(txn(payee="x"))
+
+
+# --- direction ------------------------------------------------------------------------
+# An income rule keyed on a counterparty claims everything that counterparty is involved in,
+# including money going the other way, which quietly turns a payment into negative income.
+# `direction` lets a rule say which way its money can only ever move.
+
+
+def test_direction_in_ignores_money_going_out():
+    rules = ruleset(
+        {
+            "field": "payee",
+            "value": "EMPLOYER",
+            "account": "Income:Salary",
+            "direction": "in",
+        }
+    )
+
+    assert rules.classify(txn(payee="EMPLOYER", amount="2000")).account == "Income:Salary"
+    assert rules.classify(txn(payee="EMPLOYER", amount="-50")).account == "Expenses:Unknown"
+
+
+def test_direction_out_ignores_money_coming_in():
+    rules = ruleset(
+        {"field": "payee", "value": "SHOP", "account": "Expenses:Food", "direction": "out"}
+    )
+
+    assert rules.classify(txn(payee="SHOP", amount="-10")).account == "Expenses:Food"
+    assert rules.classify(txn(payee="SHOP", amount="25")).account == "Expenses:Unknown"
+
+
+def test_a_rule_without_direction_still_claims_both_ways():
+    """Refunds legitimately reverse the income or expense they came from."""
+    rules = ruleset({"field": "payee", "value": "SHOP", "account": "Expenses:Food"})
+
+    assert rules.classify(txn(payee="SHOP", amount="-10")).account == "Expenses:Food"
+    assert rules.classify(txn(payee="SHOP", amount="25")).account == "Expenses:Food"
+
+
+def test_a_constrained_rule_declines_when_the_amount_is_unknown():
+    """Better to fall through to review than to guess which way nothing moved."""
+    rules = ruleset(
+        {"field": "payee", "value": "EMPLOYER", "account": "Income:Salary", "direction": "in"}
+    )
+    without_amount = txn(payee="EMPLOYER")._replace(
+        postings=(Posting(account="Assets:Belfius:Checking", units=None),)
+    )
+
+    assert rules.classify(without_amount).account == "Expenses:Unknown"
+
+
+def test_a_later_rule_can_still_claim_what_a_direction_rule_declined():
+    rules = ruleset(
+        {
+            "field": "payee",
+            "value": "EMPLOYER",
+            "account": "Income:Salary",
+            "direction": "in",
+        },
+        {"field": "payee", "value": "EMPLOYER", "account": "Expenses:Unknown:Employer"},
+    )
+
+    assert rules.classify(txn(payee="EMPLOYER", amount="2000")).account == "Income:Salary"
+    assert (
+        rules.classify(txn(payee="EMPLOYER", amount="-50")).account == "Expenses:Unknown:Employer"
+    )
+
+
+def test_an_unknown_direction_is_rejected():
+    with pytest.raises(ValueError, match="direction"):
+        parse_rule(
+            {"field": "payee", "value": "X", "account": "Income:Salary", "direction": "sideways"}
+        )

@@ -33,7 +33,7 @@ from finance.parsers import FORMATS, UnknownAccountError
 from finance.prices import match
 from finance.prices import render as render_prices
 from finance.render import render
-from finance.rules import Ruleset, needs_rule
+from finance.rules import Ruleset, movement, needs_rule
 
 #: A transfer leg younger than this may simply not have settled yet.
 SETTLEMENT_DAYS = 5
@@ -231,6 +231,50 @@ def _bean_check_command() -> list[str] | None:
     return None
 
 
+def _direction_report(ruleset: Ruleset, transactions: list[Transaction]) -> None:
+    """Report income rules that claimed money going out, and expense rules money coming in.
+
+    Not an error: a refund legitimately reverses the income it came from, and a corrected
+    charge reverses an expense, so both directions occur in a healthy ledger and blocking
+    them would be wrong. It is a *review prompt*, in the same spirit as the clearing account
+    — a rule matching against the flow of its own account is how a payment to a counterparty
+    quietly becomes negative income, and the only thing that separates that from a genuine
+    refund is reading it.
+
+    A rule that should never do this can say so with ``direction:`` and stop appearing here.
+    """
+    groups: dict[tuple[str, str, str], list[Decimal]] = defaultdict(list)
+    for txn in transactions:
+        if not needs_rule(txn):
+            continue
+        match = ruleset.classify(txn)
+        if match.rule is None or match.rule.direction is not None:
+            continue
+        amount = movement(txn)
+        if amount is None or amount == 0:
+            continue
+        wrong_way = (match.account.startswith("Income:") and amount < 0) or (
+            match.account.startswith("Expenses:") and amount > 0
+        )
+        if wrong_way:
+            key = (match.account, match.rule.field, match.rule.regex.pattern)
+            groups[key].append(amount)
+
+    if not groups:
+        return
+
+    print("\nrules matching against their account's own direction (review, not an error):")
+    for account, field, pattern in sorted(
+        groups, key=lambda k: sum(map(abs, groups[k])), reverse=True
+    )[:10]:
+        amounts = groups[(account, field, pattern)]
+        total = sum(amounts, Decimal(0))
+        shown = pattern if len(pattern) <= 48 else pattern[:47] + "…"
+        print(f"  {total:>12} over {len(amounts):>4} row(s)  -> {account}")
+        print(f"    {field} ~ {shown}")
+    print("  Add `direction: in` (or `out`) to a rule that should never match the other way.")
+
+
 def cmd_check(slug: str) -> int:
     cfg, _, transactions, others = _load(slug)
     resolved = [cfg.ruleset.resolve(txn) for txn in transactions]
@@ -254,6 +298,7 @@ def cmd_check(slug: str) -> int:
     balances = [d for d in others if isinstance(d, Balance)]
     print(f"balance assertions emitted: {len(balances)}")
 
+    _direction_report(cfg.ruleset, transactions)
     return _transfer_report(cfg.ruleset, resolved) or status
 
 
