@@ -15,6 +15,7 @@ from finance.parsers import (
     degiro,
     edenred,
     ing_be,
+    lynx,
     trade_republic,
 )
 from finance.parsers.base import Accounts, UnknownAccountError
@@ -27,6 +28,7 @@ FORMATS: dict[str, Parser] = {
     "degiro": degiro.parse_file,
     "edenred": edenred.parse_file,
     "ing_be": ing_be.parse_file,
+    "lynx": lynx.parse_file,
     "trade_republic": trade_republic.parse_file,
 }
 
