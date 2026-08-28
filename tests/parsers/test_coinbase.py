@@ -15,9 +15,9 @@ from finance.models import Open, Transaction
 from finance.parsers import coinbase
 from finance.parsers.base import UnknownAccountError
 
-ACCOUNTS = {"COINBASE": "Assets:Crypto:Coinbase:Cash"}
-CASH = "Assets:Crypto:Coinbase:Cash"
-POSITIONS = "Assets:Crypto:Coinbase:Positions"
+ACCOUNTS = {"COINBASE": "Assets:Investments:Crypto:Coinbase:Cash"}
+CASH = "Assets:Investments:Crypto:Coinbase:Cash"
+POSITIONS = "Assets:Investments:Crypto:Coinbase:Positions"
 
 PREAMBLE = [
     "",

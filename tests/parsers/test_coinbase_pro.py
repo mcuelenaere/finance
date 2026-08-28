@@ -15,8 +15,8 @@ from finance.models import Balance, Transaction
 from finance.parsers import coinbase_pro
 from finance.parsers.base import UnknownAccountError
 
-ACCOUNTS = {"COINBASE_PRO": "Assets:Crypto:CoinbasePro:Cash"}
-CASH = "Assets:Crypto:CoinbasePro:Cash"
+ACCOUNTS = {"COINBASE_PRO": "Assets:Investments:Crypto:CoinbasePro:Cash"}
+CASH = "Assets:Investments:Crypto:CoinbasePro:Cash"
 
 HEADER = "portfolio,type,time,amount,balance,amount/balance unit,transfer id,trade id,order id"
 

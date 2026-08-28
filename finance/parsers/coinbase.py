@@ -14,8 +14,8 @@ column on the crypto row.
 Crypto is looser, and deliberately handled without assuming the two exports agree. They do not
 quite: one holds a coin that appeared from a fork, and a few units crossed without both sides
 recording it. So positions are kept per account rather than pooled, and every coin entering or
-leaving is valued against ``Assets:Crypto:Wallet`` — the crypto held outside these two accounts,
-in hardware wallets and in flight between them. Each account's own units then close on its own
+leaving is valued against a wallet account — the crypto held outside these two accounts, in
+hardware wallets and in flight between them. Each account's own units then close on its own
 data, which is the property that makes the build fail when a row is misread rather than when two
 exports disagree about history.
 
