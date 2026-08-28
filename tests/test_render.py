@@ -249,3 +249,52 @@ def test_open_without_a_booking_method_is_unchanged():
     )
 
     assert out == "2024-03-01 open Assets:X EUR"
+
+
+def test_a_source_sequence_orders_transactions_within_a_day():
+    """A same-day buy and sell of one holding sort by the first posting's amount, which puts the
+    negative one first — so the disposal renders before the acquisition and there is no lot to
+    reduce. The export's own order has to survive, and it cannot be derived from the postings.
+    """
+
+    def trade(quantity, sequence):
+        return Transaction(
+            meta={"institution": "test", "sequence": sequence},
+            date=date(2023, 8, 2),
+            flag=FLAG_OKAY,
+            payee="Broker",
+            narration=f"trade {quantity}",
+            tags=frozenset(),
+            links=frozenset(),
+            postings=(
+                Posting(account="Assets:Broker:Positions", units=Amount(Decimal(quantity), "XYZ")),
+                Posting(account="Assets:Broker:Cash", units=Amount(Decimal("1"), "EUR")),
+            ),
+        )
+
+    out = render([trade("-5", 2), trade("10", 1)])
+
+    assert out.index("trade 10") < out.index("trade -5")
+
+
+def test_transactions_without_a_sequence_keep_their_previous_order():
+    """Everything already in the ledger has no sequence, so nothing may move."""
+
+    def plain(amount, narration):
+        return Transaction(
+            meta={"institution": "test"},
+            date=date(2023, 8, 2),
+            flag=FLAG_OKAY,
+            payee="X",
+            narration=narration,
+            tags=frozenset(),
+            links=frozenset(),
+            postings=(
+                Posting(account="Assets:A", units=Amount(Decimal(amount), "EUR")),
+                Posting(account="Expenses:B", units=None),
+            ),
+        )
+
+    out = render([plain("10", "second"), plain("-5", "first")])
+
+    assert out.index("first") < out.index("second")

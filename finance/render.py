@@ -166,6 +166,23 @@ def render_directive(directive: Directive) -> str:
     raise TypeError(f"cannot render {type(directive).__name__}")
 
 
+#: Optional metadata a parser sets to preserve its own within-day ordering.
+#:
+#: Needed because sorting cannot be derived from the postings alone. A same-day buy and sell of
+#: one holding sort by the first posting's amount, which puts the negative one first — so the
+#: disposal is rendered before the acquisition, and Beancount has no lot to reduce. The export
+#: knows the real order; this carries it through rather than guessing at it.
+SEQUENCE = "sequence"
+
+
+def _sequence(directive: Directive) -> int:
+    value = getattr(directive, "meta", None) or {}
+    try:
+        return int(value.get(SEQUENCE, 0))
+    except (TypeError, ValueError):
+        return 0
+
+
 def _sort_key(directive: Directive) -> tuple:
     kind = _KIND_ORDER[type(directive)]
     account = getattr(directive, "account", "") or ""
@@ -173,12 +190,19 @@ def _sort_key(directive: Directive) -> tuple:
         first = directive.postings[0] if directive.postings else None
         account = (first.account or "") if first else ""
         amount = first.units.number if first and first.units else Decimal(0)
-        return (directive.date, kind, account, amount, directive.narration)
+        return (
+            directive.date,
+            kind,
+            account,
+            _sequence(directive),
+            amount,
+            directive.narration,
+        )
     if isinstance(directive, Balance):
-        return (directive.date, kind, account, directive.amount.number, "")
+        return (directive.date, kind, account, 0, directive.amount.number, "")
     if isinstance(directive, Price):
-        return (directive.date, kind, directive.currency, directive.amount.number, "")
-    return (directive.date, kind, account, Decimal(0), "")
+        return (directive.date, kind, directive.currency, 0, directive.amount.number, "")
+    return (directive.date, kind, account, 0, Decimal(0), "")
 
 
 def render(directives: Iterable[Directive], *, header: str | None = None) -> str:
