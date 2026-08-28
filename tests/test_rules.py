@@ -324,3 +324,47 @@ def test_both_fallbacks_are_configurable():
 
     assert rules.classify(txn(payee="X", amount="-1")).account == "Expenses:TODO"
     assert rules.classify(txn(payee="X", amount="1")).account == "Income:TODO"
+
+
+# --- an identifier's written form ------------------------------------------------------
+# `own_accounts` has always converted between a Belgian account's IBAN and its domestic number.
+# Rules did not, so a rule keyed on one form silently missed every row where the export stored
+# the other — which hid a credit-card account inside a savings account for two of its rows.
+
+
+def test_a_rule_on_an_iban_matches_the_domestic_form_too():
+    rules = ruleset(
+        {
+            "field": "meta.counterparty_iban",
+            "value": "BE53123456789012",
+            "account": "Expenses:CreditCard",
+        }
+    )
+    stored_domestically = txn(payee="X", counterparty_iban="123-4567890-12")
+
+    assert rules.classify(stored_domestically).account == "Expenses:CreditCard"
+
+
+def test_a_rule_on_the_domestic_form_matches_the_iban_too():
+    rules = ruleset(
+        {
+            "field": "meta.counterparty_iban",
+            "value": "123-4567890-12",
+            "account": "Expenses:CreditCard",
+        }
+    )
+
+    for stored in ("BE53123456789012", "BE53 1234 5678 9012"):
+        assert rules.classify(txn(payee="X", counterparty_iban=stored)).account == (
+            "Expenses:CreditCard"
+        )
+
+
+def test_free_text_is_not_run_through_the_iban_conversion():
+    """Only identifier fields get it; a narration that happens to look like a number must not
+    be reinterpreted as an account."""
+    rules = ruleset(
+        {"field": "narration", "value": "BE53123456789012", "account": "Expenses:Other"}
+    )
+
+    assert rules.classify(txn(narration="123-4567890-12")).account == "Expenses:Unknown"

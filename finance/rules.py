@@ -154,17 +154,38 @@ def field_value(txn: Transaction, field: str) -> str | None:
     return normalize_text(str(raw))
 
 
-def _matches(rule: Rule, value: str) -> bool:
-    """Whether ``rule`` claims ``value``, ignoring how an identifier happens to be spaced.
+#: Fields holding an account identifier, where one account has several written forms. Only these
+#: get the domestic/IBAN conversion; trying it on free text would be meaningless.
+IDENTIFIER_FIELDS = ("meta.counterparty_iban",)
 
-    Banks write the same IBAN both spaced and unspaced, and a rule author has no way to know
-    which a given export used. Trying the space-free form too means a rule written either way
-    matches either way, rather than silently claiming nothing.
+
+def _forms(field: str, value: str) -> tuple[str, ...]:
+    """Every way this value might have been written, so a rule matches whichever the bank used.
+
+    Spacing first: banks write the same IBAN both spaced and unspaced, and a rule author cannot
+    know which a given export chose.
+
+    Then the domestic form, for identifier fields. `own_accounts` has always converted between
+    the two — see :mod:`finance.iban` — but rules did not, so a rule keyed on the IBAN silently
+    missed every row where the export stored the domestic number. That is the same failure as
+    the spacing one, one step further out, and it hid a credit-card account inside a savings
+    account for two of its rows.
     """
-    if rule.regex.search(value):
-        return True
+    forms = [value]
     compact = value.replace(" ", "")
-    return compact != value and bool(rule.regex.search(compact))
+    if compact != value:
+        forms.append(compact)
+    if field in IDENTIFIER_FIELDS:
+        forms.extend(variants(normalize_identifier(value)))
+    seen: dict[str, None] = {}
+    for form in forms:
+        seen.setdefault(form, None)
+    return tuple(seen)
+
+
+def _matches(rule: Rule, value: str, field: str = "") -> bool:
+    """Whether ``rule`` claims ``value``, however the bank happened to write it."""
+    return any(rule.regex.search(form) for form in _forms(field, value))
 
 
 class Ruleset(NamedTuple):
@@ -207,7 +228,7 @@ class Ruleset(NamedTuple):
             if not _direction_holds(rule, txn):
                 continue
             value = field_value(txn, rule.field)
-            if value and _matches(rule, value):
+            if value and _matches(rule, value, rule.field):
                 return Match(rule.account, REASON_RULE, rule)
 
         amount = movement(txn)
