@@ -167,3 +167,19 @@ def test_the_counter_posting_is_left_for_the_rules():
 def test_missing_account_is_an_error_not_a_guess():
     with pytest.raises(UnknownAccountError, match="coinbase_pro"):
         parse("default,deposit,2017-06-15T10:47:59.971Z,300.0,300.0,EUR,t1,,", accounts={})
+
+
+def test_units_arriving_at_no_cost_still_name_where_they_came_from():
+    """Beancount answers an elided posting it cannot give a number by *deleting* it, silently.
+    These units cost nothing, so the transaction balances without the counter-posting — and the
+    pool account it names would end up with no posting in the very transaction meant to record
+    that units passed through it. An explicit zero survives."""
+    rows = ["default,deposit,2019-05-12T08:23:15.000Z,0.25,0.25,ETH,tr1,,"]
+
+    (txn,) = transactions(parse(*rows))
+
+    position, counter = txn.postings
+    assert position.units == (Decimal("0.25"), "ETH")
+    assert position.cost.number == Decimal(0)
+    assert counter.account is None
+    assert counter.units == (Decimal(0), "EUR"), "explicit, or Beancount drops the posting"

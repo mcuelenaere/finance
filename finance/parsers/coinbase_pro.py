@@ -196,7 +196,15 @@ def parse_from_io(handle, accounts: Accounts, *, source_file: str = "") -> Itera
                         units=Amount(amount, currency),
                         cost=Cost(UNKNOWN_COST, UNKNOWN_COST_CURRENCY, None, None, total=True),
                     ),
-                    Posting(account=None, units=None),
+                    # An explicit zero, not an elided amount. The units cost nothing, so the
+                    # transaction already balances — and Beancount answers an elided posting it
+                    # cannot give a number by *deleting it*, with no error. The pool account
+                    # this names would then have no posting in the very transaction meant to
+                    # record that units passed through it.
+                    Posting(
+                        account=None,
+                        units=Amount(UNKNOWN_COST, UNKNOWN_COST_CURRENCY),
+                    ),
                 ]
             else:
                 postings = [

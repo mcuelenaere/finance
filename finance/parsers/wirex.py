@@ -529,7 +529,16 @@ def _entries(move: Movement, *, cash: str, positions: str, gains: str) -> list[E
     elif move.cost is None:
         # Nothing names the far side, so the rules engine does. One elided posting absorbs
         # whatever is left, which for a pure transfer is the lot's own cost.
-        postings.append(Posting(account=None, units=None))
+        #
+        # **Written as an explicit zero when there is nothing for it to absorb.** Units arriving
+        # here cost zero by policy, so the transaction already balances without this posting —
+        # and Beancount responds to an elided posting it cannot give a number by *deleting it*,
+        # silently and without an error. The account it names then has no posting at all, so the
+        # wallet the units came from goes unrecorded in the very transaction that exists to
+        # record it. An explicit zero survives.
+        empty = held is not None and held.number > 0
+        units = Amount(UNKNOWN_COST, UNKNOWN_COST_CURRENCY) if empty else None
+        postings.append(Posting(account=None, units=units))
 
     return [Entry(postings=tuple(postings), payee="", narration="")]
 

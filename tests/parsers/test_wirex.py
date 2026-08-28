@@ -322,6 +322,11 @@ def test_units_arriving_from_outside_are_booked_at_zero():
     assert held.cost.currency == "EUR"
     assert held.cost.total is True
     assert counter.account is None
+    # An explicit zero rather than an elided amount. The units cost nothing, so the transaction
+    # already balances — and Beancount answers an elided posting it cannot give a number by
+    # DELETING it, with no error at all. The wallet the units came from would then have no
+    # posting in the one transaction that exists to record where they came from.
+    assert counter.units == (Decimal(0), "EUR")
     assert txn.meta["blockchain"] == "Ethereum"
     assert txn.meta["crypto_address"].startswith("0x")
 
