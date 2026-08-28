@@ -31,7 +31,7 @@ from finance import config as config_module
 from finance.dedup import dedupe, dedupe_directives, duplicate_report
 from finance.models import Balance, Directive, Transaction, posting_amounts
 from finance.parsers import FORMATS, UnknownAccountError
-from finance.prices import match
+from finance.prices import Rate, match, restate
 from finance.prices import render as render_prices
 from finance.render import render
 from finance.rules import Ruleset, movement, needs_rule
@@ -380,7 +380,25 @@ def _snapshot_assets(path: str) -> list[dict]:
     return []
 
 
-def cmd_prices(slug: str, snapshots: list[str], as_of: Date | None, portfolio: str) -> int:
+def _rate(text: str) -> Rate:
+    """Parse a ``BASE:RATE:QUOTE`` pair, as Delta reports a forex pair."""
+    parts = text.split(":")
+    if len(parts) != 3:
+        raise SystemExit(f"error: --fx wants BASE:RATE:QUOTE, got {text!r}")
+    base, rate, quote = parts
+    try:
+        return Rate(base.strip().upper(), Decimal(rate.strip()), quote.strip().upper())
+    except ArithmeticError:
+        raise SystemExit(f"error: --fx rate {rate!r} is not a number") from None
+
+
+def cmd_prices(
+    slug: str,
+    snapshots: list[str],
+    as_of: Date | None,
+    portfolio: str,
+    fx: list[str] | None = None,
+) -> int:
     """Write price directives from Delta snapshots an agent fetched over MCP.
 
     Deliberately takes files rather than calling anything: no build step may depend on a
@@ -396,22 +414,35 @@ def cmd_prices(slug: str, snapshots: list[str], as_of: Date | None, portfolio: s
 
     holdings: dict[str, Decimal] = defaultdict(Decimal)
     names: dict[str, str] = {}
+    #: Which currency each holding's lots are held at cost in. A quote in any other currency
+    #: does not value it — Beancount never composes two conversions.
+    lot_currencies: dict[str, set[str]] = defaultdict(set)
     for txn in resolved:
         for posting in txn.postings:
             if posting.units and posting.units.currency not in ("EUR", "USD", "JPY", "GBP"):
                 holdings[posting.units.currency] += posting.units.number
                 if txn.meta.get("product"):
                     names.setdefault(posting.units.currency, str(txn.meta["product"]))
+                if posting.cost and posting.cost.currency:
+                    lot_currencies[posting.units.currency].add(posting.cost.currency)
     open_holdings = {c: q for c, q in holdings.items() if q != 0}
 
     assets: list[dict] = []
     for path in snapshots:
         assets.extend(_snapshot_assets(path))
     quotes, unpriced = match(open_holdings, names, assets)
+    rates = [_rate(pair) for pair in fx or []]
+    quotes = restate(quotes, lot_currencies, rates)
 
     path = cfg.output_dir / "prices.beancount"
     path.write_text(
-        render_prices(quotes, unpriced, as_of=as_of or Date.today(), portfolio=portfolio),
+        render_prices(
+            quotes,
+            unpriced,
+            as_of=as_of or Date.today(),
+            portfolio=portfolio,
+            rates=rates,
+        ),
         encoding="utf-8",
     )
     print(f"wrote {path} ({len(quotes)} priced, {len(unpriced)} not)")
@@ -443,6 +474,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     prices.add_argument("--as-of", type=Date.fromisoformat, default=None)
     prices.add_argument("--portfolio", default="Investments")
+    prices.add_argument(
+        "--fx",
+        action="append",
+        metavar="BASE:RATE:QUOTE",
+        help=(
+            "an exchange rate, e.g. EUR:1.15998:USD. Repeatable. Needed for any currency the "
+            "ledger holds besides its own: Beancount never composes two conversions, so a "
+            "foreign-quoted holding priced in its own currency needs this to reach a euro total"
+        ),
+    )
 
     args = parser.parse_args(argv)
 
@@ -454,7 +495,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "check":
             return cmd_check(args.ledger)
         if args.command == "prices":
-            return cmd_prices(args.ledger, args.snapshot, args.as_of, args.portfolio)
+            return cmd_prices(args.ledger, args.snapshot, args.as_of, args.portfolio, args.fx)
     except FileNotFoundError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2

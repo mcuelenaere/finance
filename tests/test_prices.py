@@ -8,7 +8,7 @@ answer should be "unpriced" instead of a guess.
 from datetime import date
 from decimal import Decimal
 
-from finance.prices import match, render
+from finance.prices import Quote, Rate, match, render, restate
 
 
 def asset(ticker, name, holdings, price="10.00", currency="EUR"):
@@ -107,3 +107,83 @@ def test_render_is_stable_for_the_same_snapshot():
 
     assert once == twice
     assert once.index("price A1") < once.index("price B2")  # sorted, not input order
+
+
+# --- quoting a holding in the currency its lots are actually held in --------------------
+
+
+def quote(commodity="ETOR", price="27.2322", currency="EUR", name="Etoro Group Ltd"):
+    return Quote(
+        commodity=commodity, price=Decimal(price), currency=currency, ticker="ETOR", name=name
+    )
+
+
+def test_a_dollar_bought_holding_is_requoted_in_dollars():
+    """Beancount values a position in the currency it was bought in and never composes two
+    conversions, so a euro quote on a dollar-cost lot leaves the holding reported as bare units
+    — which reads on a balance sheet as worthless rather than as unpriced."""
+    (restated,) = restate(
+        [quote()],
+        {"ETOR": {"USD"}},
+        [Rate("EUR", Decimal("1.15998"), "USD")],
+    )
+
+    assert restated.currency == "USD"
+    assert restated.price == Decimal("31.5888")
+
+
+def test_a_holding_bought_in_two_currencies_is_quoted_in_both():
+    """Beancount keys a price on the commodity *and* the currency, so both are needed."""
+    restated = restate(
+        [quote(commodity="IWDA", price="128.27")],
+        {"IWDA": {"EUR", "USD"}},
+        [Rate("EUR", Decimal("1.15998"), "USD")],
+    )
+
+    assert {(q.currency, q.price) for q in restated} == {
+        ("EUR", Decimal("128.27")),
+        ("USD", Decimal("148.7906")),
+    }
+
+
+def test_a_euro_bought_holding_is_left_alone():
+    (restated,) = restate(
+        [quote(commodity="BE0000000001", price="207.84")],
+        {"BE0000000001": {"EUR"}},
+        [Rate("EUR", Decimal("1.15998"), "USD")],
+    )
+
+    assert restated.currency == "EUR"
+    assert restated.price == Decimal("207.84")
+
+
+def test_without_a_rate_the_original_quote_is_kept_rather_than_dropped():
+    """It is still right for anything asking in euro, and inventing a rate would be worse."""
+    (restated,) = restate([quote()], {"ETOR": {"USD"}}, [])
+
+    assert (restated.currency, restated.price) == ("EUR", Decimal("27.2322"))
+
+
+def test_a_holding_with_no_recorded_lot_currency_is_left_alone():
+    (restated,) = restate([quote()], {}, [Rate("EUR", Decimal("1.15998"), "USD")])
+
+    assert restated.currency == "EUR"
+
+
+def test_render_writes_the_rates_it_was_given():
+    text = render(
+        [quote(currency="USD", price="31.59")],
+        [],
+        as_of=date(2026, 8, 28),
+        portfolio="Investments",
+        rates=[Rate("EUR", Decimal("1.15998"), "USD")],
+    )
+
+    assert "2026-08-28 price EUR 1.15998 USD" in text
+    assert "2026-08-28 price ETOR 31.59 USD" in text
+
+
+def test_render_without_rates_writes_no_rate_section():
+    text = render([quote()], [], as_of=date(2026, 8, 28), portfolio="Investments")
+
+    assert "Exchange rates" not in text

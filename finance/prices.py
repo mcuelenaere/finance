@@ -32,6 +32,22 @@ class Quote(NamedTuple):
     name: str
 
 
+class Rate(NamedTuple):
+    """An exchange rate, for the currencies the ledger holds besides its own.
+
+    Needed because **Beancount does not chain conversions.** A holding bought in dollars is
+    valued by looking for a price in *dollars*; a price in euro does not help, and neither does
+    a euro price plus a EUR/USD rate — the two are never composed. So a foreign-quoted holding
+    needs a quote in its own currency, and then this to bring the total back to the ledger's.
+    Verified directly: with only a euro quote, "at market value" reports the position as bare
+    units, which reads as a holding that is worth nothing rather than one that is unpriced.
+    """
+
+    base: str
+    rate: Decimal
+    quote: str
+
+
 class Unpriced(NamedTuple):
     commodity: str
     quantity: Decimal
@@ -102,12 +118,53 @@ def match(
     return sorted(quotes), sorted(unpriced)
 
 
+def restate(
+    quotes: list[Quote],
+    lot_currencies: dict[str, set[str]],
+    rates: list[Rate],
+) -> list[Quote]:
+    """Re-express each quote in the currency the holding's own lots are held in.
+
+    **Beancount values a position in the currency it was bought in, and never composes two
+    conversions.** A dollar-bought holding quoted only in euro is therefore reported as bare
+    units — not as an error, and not as its cost, but as nothing at all, which reads on a
+    balance sheet as a holding that is worthless rather than one that is unpriced.
+
+    The snapshot arrives entirely in euro, because that is the only currency the tracker's
+    portfolio endpoint reports. Converting back with the supplied rate reintroduces exactly the
+    rate the tracker used to get there, so nothing is lost that was not already lost.
+
+    A commodity bought in two currencies gets a quote in each: Beancount keys a price on the
+    pair, so both are needed and neither is redundant.
+    """
+    factors = {(rate.base, rate.quote): rate.rate for rate in rates}
+    factors.update({(rate.quote, rate.base): 1 / rate.rate for rate in rates})
+
+    out: list[Quote] = []
+    for quote in quotes:
+        wanted = lot_currencies.get(quote.commodity) or {quote.currency}
+        for currency in sorted(wanted):
+            if currency == quote.currency:
+                out.append(quote)
+                continue
+            factor = factors.get((quote.currency, currency))
+            if factor is None:
+                # No rate supplied, so the euro quote is kept rather than dropped: it is still
+                # right for anything asking in euro, and inventing a rate would be worse.
+                out.append(quote)
+                continue
+            restated = (quote.price * factor).quantize(QUOTE)
+            out.append(quote._replace(price=restated, currency=currency))
+    return out
+
+
 def render(
     quotes: list[Quote],
     unpriced: list[Unpriced],
     *,
     as_of: Date,
     portfolio: str,
+    rates: list[Rate] | None = None,
 ) -> str:
     """The prices file, including what could not be priced.
 
@@ -126,6 +183,16 @@ def render(
         f";; {len(quotes)} priced, {len(unpriced)} not.",
         "",
     ]
+    if rates:
+        lines += [
+            ";; Exchange rates. Not decoration: Beancount values a holding in the currency it",
+            ";; was bought in and never composes two conversions, so a dollar-quoted holding",
+            ";; needs a dollar quote, and this is what brings the total back to euro.",
+        ]
+        for rate in rates:
+            lines.append(f"{as_of} price {rate.base} {rate.rate} {rate.quote}")
+        lines.append("")
+
     width = max((len(q.commodity) for q in quotes), default=0)
     for quote in quotes:
         label = f"{quote.ticker} — {quote.name}" if quote.ticker else quote.name
