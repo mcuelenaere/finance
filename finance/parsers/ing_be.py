@@ -26,6 +26,66 @@ class IngDialect(csv.excel):
     delimiter = ";"
 
 
+#: A direct debit, under both names ING has used for one. The creditor is never in the
+#: description; it has to be read out of the detail block.
+DIRECT_DEBIT_PREFIXES = ("Europese domiciliëring", "Domiciliering in euro")
+
+#: The label the creditor's name follows. It sits on the *next* part, not this one — the label
+#: always ends at its colon. Requiring the name on the same part is why every direct debit in
+#: this repo lost its counterparty: the condition matched nothing, in either spelling.
+DEBTOR_LABEL = "Vandaag, debiteren wij uw rekening voor:"
+
+#: The older first-payment notice announces a new mandate instead, and labels the creditor.
+CREDITOR_LABEL = "Schuldeiser"
+
+#: SEPA creditor identifier. Worth keeping: it is issued to the company and outlives the
+#: trading name on the statement, so a rule keyed on it survives a rebrand that a rule keyed
+#: on the name does not.
+CREDITOR_ID_LABELS = ("Identificatienr", "Schuldeisers ID.")
+
+
+def _parts(block: str) -> list[str]:
+    return [part.strip() for part in re.split(r"\s{3,}", block) if part.strip()]
+
+
+def _labelled(part: str, label: str) -> str | None:
+    """The value after ``label`` on this part, if any. Tolerates a space before the colon."""
+    for separator in (": ", " : "):
+        prefix = label + separator
+        if part.startswith(prefix):
+            return part[len(prefix) :].strip() or None
+    return None
+
+
+def _is_direct_debit(description: str) -> bool:
+    return description.startswith(DIRECT_DEBIT_PREFIXES)
+
+
+def _direct_debit_parties(detail: str) -> tuple[str | None, str | None]:
+    """``(creditor name, creditor IBAN)`` for a direct debit."""
+    name = number = None
+    parts = _parts(detail)
+    for index, part in enumerate(parts):
+        if part.startswith(DEBTOR_LABEL) and index + 1 < len(parts):
+            name = name or parts[index + 1]
+        else:
+            name = name or _labelled(part, CREDITOR_LABEL)
+        number = number or _labelled(part, "Rekening")
+    return name, number
+
+
+def creditor_id(row: dict[str, str]) -> str | None:
+    """The SEPA creditor identifier of a direct debit, if this row is one."""
+    if not _is_direct_debit(row.get("Omschrijving") or ""):
+        return None
+    for part in _parts(row.get("Detail van de omzet") or ""):
+        for label in CREDITOR_ID_LABELS:
+            value = _labelled(part, label)
+            if value:
+                return value
+    return None
+
+
 def _counterparty(row: dict[str, str]) -> tuple[str | None, str | None]:
     """Recover ``(name, iban)`` of the other side of the transaction.
 
@@ -45,14 +105,9 @@ def _counterparty(row: dict[str, str]) -> tuple[str | None, str | None]:
         if name or number:
             return name, number
 
-    if description.startswith("Europese domiciliëring"):
-        name = number = None
-        for part in re.split(r"\s{3,}", detail):
-            if part.startswith("Vandaag, debiteren wij uw rekening voor: "):
-                name = re.split(r"\s+", part, maxsplit=2)[1]
-            elif part.startswith("Rekening: "):
-                number = re.split(r"\s+", part, maxsplit=2)[1]
-        if name and number:
+    if _is_direct_debit(description):
+        name, number = _direct_debit_parties(detail)
+        if name or number:
             return name, number
 
     # A transfer names its counterparty as `Naar: <name> - <iban>` in the description. This
@@ -110,6 +165,9 @@ def parse_from_io(handle, accounts: Accounts, *, source_file: str = "") -> Itera
             meta["source_file"] = source_file
         if iban:
             meta["counterparty_iban"] = normalize_text(iban)
+        mandate_creditor = creditor_id(row)
+        if mandate_creditor:
+            meta["creditor_id"] = normalize_text(mandate_creditor)
         if row.get("Omzetnummer"):
             # Stable within an account+year; recorded so dedup could become exact later.
             meta["entry_number"] = row["Omzetnummer"].strip()

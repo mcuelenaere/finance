@@ -104,6 +104,51 @@ TESTCASES = (
         "2023-06-11",
         id="payconiq",
     ),
+    # A direct debit never names its creditor on the same part as the label — the label always
+    # ends at its colon and the name is the next part. The parser required them together,
+    # which matched nothing, so every direct debit in every spelling lost its counterparty.
+    pytest.param(
+        r"390-1234567-89;DE H JOHN DOE;;415;11/12/2014;11/12/2014;-25,00;EUR;"
+        r"Europese domiciliëring      ;"
+        r"Vandaag, debiteren wij uw rekening voor:                             "
+        r"     ACME ENERGY                                                     "
+        r"     Identificatienr:  BE12 ZZZ 3456789012                           "
+        r"     Rekening: BE12345678901234                                      "
+        r"     Type: Terugkerende invordering                                  ;",
+        "ACME ENERGY",
+        "BE12345678901234",
+        Decimal("-25.00"),
+        "2014-12-11",
+        id="direct-debit-european",
+    ),
+    pytest.param(
+        r"390-1234567-89;DE H JOHN DOE;;416;18/07/2019;18/07/2019;-9,99;EUR;"
+        r"Domiciliering in euro      ;"
+        r"DEBET VOOR EEN DOMICILIERING IN EURO (SEPA)                          "
+        r"     Vandaag, debiteren wij uw rekening voor:                        "
+        r"     ACME TELECOM                                                    "
+        r"     Identificatienr:  BE98 ZZZ 7654321098                           "
+        r"     Rekening: BE98765432109876                                      ;",
+        "ACME TELECOM",
+        "BE98765432109876",
+        Decimal("-9.99"),
+        "2019-07-18",
+        id="direct-debit-domestic-spelling",
+    ),
+    # The first-payment notice for a new mandate has a different shape again: it labels the
+    # creditor instead of the debit, and puts a space before the colon.
+    pytest.param(
+        r"390-1234567-89;DE H JOHN DOE;;417;18/12/2014;18/12/2014;0,00;EUR;"
+        r"Europese domiciliëring      ;"
+        r"Een eerste betaling werd aangeboden voor een nieuw                    "
+        r"     Schuldeiser : ACME ENERGY                                        "
+        r"     Schuldeisers ID. : BE12 ZZZ 3456789012                           ;",
+        "ACME ENERGY",
+        None,
+        Decimal("0.00"),
+        "2014-12-18",
+        id="direct-debit-new-mandate-notice",
+    ),
 )
 
 
@@ -150,3 +195,33 @@ def test_unknown_account_is_an_error_not_a_guess():
     row = r"999-9999999-99;X;;1;01/04/2019;03/04/2019;-1,00;EUR;Europese overschrijving;;"
     with pytest.raises(UnknownAccountError, match="999-9999999-99"):
         tuple(ing_be.parse_from_io(StringIO(f"{CSV_HEADER}\n{row}"), ACCOUNTS))
+
+
+def test_the_sepa_creditor_id_is_recorded():
+    """It is issued to the company and outlives its trading name.
+
+    Eneco appears under four names in these statements and PayPal under four, each set sharing
+    one identifier — so a rule keyed on the identifier survives a rebrand that a name-keyed
+    rule does not, and needs one entry instead of four.
+    """
+    row = (
+        r"390-1234567-89;DE H JOHN DOE;;418;11/12/2014;11/12/2014;-25,00;EUR;"
+        r"Europese domiciliëring      ;"
+        r"Vandaag, debiteren wij uw rekening voor:                             "
+        r"     ACME ENERGY                                                     "
+        r"     Identificatienr:  BE12 ZZZ 3456789012                           ;"
+    )
+    (txn,) = tuple(ing_be.parse_from_io(StringIO(f"{CSV_HEADER}\n{row}"), ACCOUNTS))
+
+    assert txn.meta["creditor_id"] == "BE12 ZZZ 3456789012"
+
+
+def test_a_plain_transfer_has_no_creditor_id():
+    row = (
+        r"390-1234567-89;DE H JOHN DOE;;419;05/09/2021;05/09/2021;-2500,00;EUR;"
+        r"Overschrijving in euro (SEPA): ING app                               "
+        r"           Naar: John Doe - BE12345678901234                         ;;"
+    )
+    (txn,) = tuple(ing_be.parse_from_io(StringIO(f"{CSV_HEADER}\n{row}"), ACCOUNTS))
+
+    assert "creditor_id" not in txn.meta
