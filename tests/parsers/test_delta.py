@@ -14,9 +14,12 @@ from finance.models import Balance, Open, Transaction
 from finance.parsers import delta
 from finance.parsers.base import UnknownAccountError
 
-ACCOUNTS = {"PENSION": "Assets:Investments:PensionSavings:Cash"}
+ACCOUNTS = {
+    "PENSION": "Assets:Cash:PensionSavings",
+    "PENSION_POSITIONS": "Assets:Investments:PensionSavings:Positions",
+}
 ACCOUNT_KEY = "pension"
-CASH = "Assets:Investments:PensionSavings:Cash"
+CASH = "Assets:Cash:PensionSavings"
 POSITIONS = "Assets:Investments:PensionSavings:Positions"
 
 

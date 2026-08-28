@@ -7,7 +7,7 @@ from finance.cli import _manual_postings, _transfer_report
 from finance.models import FLAG_OKAY, Amount, Posting, Transaction
 from finance.rules import Ruleset
 
-TRANSFERS = "Assets:Transfers"
+TRANSFERS = "Assets:Clearing:Transfers"
 
 
 def ruleset(own_accounts=None):
@@ -105,8 +105,8 @@ def test_a_hand_written_leg_is_summed(tmp_path):
     path = write_manual(
         tmp_path,
         '2019-09-04 * "ING" "Closing transfer, leg missing from the export"',
-        "  Assets:ING:Savings2   -1355.82 EUR",
-        "  Assets:Transfers       1355.82 EUR",
+        "  Assets:Savings:ING:Second   -1355.82 EUR",
+        "  Assets:Clearing:Transfers       1355.82 EUR",
     )
     totals, unreadable = _manual_postings(path, TRANSFERS)
 
@@ -117,9 +117,9 @@ def test_a_hand_written_leg_is_summed(tmp_path):
 def test_currencies_are_kept_apart(tmp_path):
     path = write_manual(
         tmp_path,
-        "  Assets:Transfers    100.00 EUR",
-        "  Assets:Transfers     -40.00 USD",
-        "  Assets:Transfers      25.50 EUR",
+        "  Assets:Clearing:Transfers    100.00 EUR",
+        "  Assets:Clearing:Transfers     -40.00 USD",
+        "  Assets:Clearing:Transfers      25.50 EUR",
     )
     totals, _ = _manual_postings(path, TRANSFERS)
 
@@ -130,8 +130,8 @@ def test_a_commented_out_posting_is_ignored(tmp_path):
     """The file documents alternatives in comments; they are not entries."""
     path = write_manual(
         tmp_path,
-        ";; Assets:Transfers    999.00 EUR",
-        "  Assets:Transfers      10.00 EUR",
+        ";; Assets:Clearing:Transfers    999.00 EUR",
+        "  Assets:Clearing:Transfers      10.00 EUR",
     )
     totals, unreadable = _manual_postings(path, TRANSFERS)
 
@@ -140,11 +140,11 @@ def test_a_commented_out_posting_is_ignored(tmp_path):
 
 
 def test_another_account_is_not_counted(tmp_path):
-    """`Assets:TransfersOld` contains the name but is a different account."""
+    """`Assets:Clearing:TransfersOld` contains the name but is a different account."""
     path = write_manual(
         tmp_path,
-        "  Assets:TransfersOld   500.00 EUR",
-        "  Assets:Transfers       10.00 EUR",
+        "  Assets:Clearing:TransfersOld   500.00 EUR",
+        "  Assets:Clearing:Transfers       10.00 EUR",
     )
     totals, _ = _manual_postings(path, TRANSFERS)
 
@@ -155,8 +155,8 @@ def test_an_unreadable_line_is_counted_not_swallowed(tmp_path):
     """Silence is the risk of scanning instead of parsing, so it has to be visible."""
     path = write_manual(
         tmp_path,
-        "  Assets:Transfers      10.00 EUR",
-        "  Assets:Transfers   {something the scanner cannot read}",
+        "  Assets:Clearing:Transfers      10.00 EUR",
+        "  Assets:Clearing:Transfers   {something the scanner cannot read}",
     )
     totals, unreadable = _manual_postings(path, TRANSFERS)
 

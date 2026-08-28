@@ -53,6 +53,10 @@ DEFAULT_COMMISSION_ACCOUNT = "Expenses:Financial:Fees"
 DEFAULT_TAX_ACCOUNT = "Expenses:Taxes"
 
 #: Where positions are held, and how disposals pick their lots.
+#: Optional ``own_accounts`` key for where units are held. Defaults to a sibling of the cash
+#: account, which is only right when the two live in one branch — so a ledger that files cash
+#: and holdings under different roots must say where this one goes.
+POSITIONS_ACCOUNT_KEY = "lynx_positions"
 POSITIONS_LEAF = "Positions"
 BOOKING = "FIFO"
 
@@ -115,7 +119,9 @@ def _sections(handle) -> tuple[dict[str, str], list[dict[str, str]]]:
 
 def parse_file(path: str, accounts: Accounts) -> Iterator[Directive]:
     cash = resolve_account(accounts, ACCOUNT_KEY, source=path)
-    positions = f"{cash.rpartition(':')[0]}:{POSITIONS_LEAF}"
+    positions = accounts.get(
+        POSITIONS_ACCOUNT_KEY.upper(), f"{cash.rpartition(':')[0]}:{POSITIONS_LEAF}"
+    )
     commission_account = accounts.get(COMMISSION_ACCOUNT_KEY.upper(), DEFAULT_COMMISSION_ACCOUNT)
     tax_account = accounts.get(TAX_ACCOUNT_KEY.upper(), DEFAULT_TAX_ACCOUNT)
 

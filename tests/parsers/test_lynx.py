@@ -12,8 +12,11 @@ from finance.models import Balance, Open, Transaction
 from finance.parsers import lynx
 from finance.parsers.base import UnknownAccountError
 
-ACCOUNTS = {"LYNX": "Assets:Investments:Lynx:Cash"}
-CASH = "Assets:Investments:Lynx:Cash"
+ACCOUNTS = {
+    "LYNX": "Assets:Cash:Lynx",
+    "LYNX_POSITIONS": "Assets:Investments:Lynx:Positions",
+}
+CASH = "Assets:Cash:Lynx"
 POSITIONS = "Assets:Investments:Lynx:Positions"
 
 HEADER = [
@@ -186,3 +189,30 @@ def test_statement_and_summary_rows_are_not_transactions(tmp_path):
 def test_missing_account_is_an_error_not_a_guess(tmp_path):
     with pytest.raises(UnknownAccountError, match="lynx"):
         list(lynx.parse_file(write(tmp_path, BUY), {}))
+
+
+def test_positions_fall_back_to_a_sibling_of_the_cash_account(tmp_path):
+    """The fallback for a ledger that keeps one branch per broker.
+
+    It is only right when cash and holdings live together, which is why a ledger that files them
+    under different roots has to name the positions account — see `POSITIONS_ACCOUNT_KEY`. Kept
+    tested because it is the documented default and nothing else exercises it any more.
+    """
+    one_branch = {"LYNX": "Assets:Investments:Lynx:Cash"}
+    (txn,) = [
+        d for d in lynx.parse_file(write(tmp_path, BUY), one_branch) if isinstance(d, Transaction)
+    ]
+
+    assert txn.postings[0].account == "Assets:Investments:Lynx:Positions"
+
+
+def test_a_named_positions_account_wins_over_the_sibling(tmp_path):
+    elsewhere = {
+        "LYNX": "Assets:Cash:Lynx",
+        "LYNX_POSITIONS": "Assets:Somewhere:Else",
+    }
+    (txn,) = [
+        d for d in lynx.parse_file(write(tmp_path, BUY), elsewhere) if isinstance(d, Transaction)
+    ]
+
+    assert txn.postings[0].account == "Assets:Somewhere:Else"

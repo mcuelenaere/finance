@@ -54,6 +54,10 @@ ACCOUNT_KEY = "coinbase_pro"
 GAINS_ACCOUNT_KEY = "coinbase_pro_gains"
 DEFAULT_GAINS_ACCOUNT = "Income:CapitalGains:Crypto"
 
+#: Optional ``own_accounts`` key for where units are held. Defaults to a sibling of the cash
+#: account, which is only right when the two live in one branch — so a ledger that files cash
+#: and holdings under different roots must say where this one goes.
+POSITIONS_ACCOUNT_KEY = "coinbase_pro_positions"
 POSITIONS_LEAF = "Positions"
 BOOKING = "FIFO"
 
@@ -98,7 +102,9 @@ def _meta(row: dict, source_file: str) -> dict[str, object]:
 
 def parse_from_io(handle, accounts: Accounts, *, source_file: str = "") -> Iterator[Directive]:
     cash = resolve_account(accounts, ACCOUNT_KEY, source=source_file or INSTITUTION)
-    positions = f"{cash.rpartition(':')[0]}:{POSITIONS_LEAF}"
+    positions = accounts.get(
+        POSITIONS_ACCOUNT_KEY.upper(), f"{cash.rpartition(':')[0]}:{POSITIONS_LEAF}"
+    )
     gains = accounts.get(GAINS_ACCOUNT_KEY.upper(), DEFAULT_GAINS_ACCOUNT)
 
     rows = [r for r in csv.DictReader(handle) if r.get("amount") and r.get("time")]

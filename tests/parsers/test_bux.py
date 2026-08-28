@@ -14,8 +14,11 @@ from finance.models import Balance, Open, Transaction
 from finance.parsers import bux
 from finance.parsers.base import UnknownAccountError
 
-ACCOUNTS = {"BUX": "Assets:Investments:BUX:Cash"}
-CASH = "Assets:Investments:BUX:Cash"
+ACCOUNTS = {
+    "BUX": "Assets:Cash:BUX",
+    "BUX_POSITIONS": "Assets:Investments:BUX:Positions",
+}
+CASH = "Assets:Cash:BUX"
 POSITIONS = "Assets:Investments:BUX:Positions"
 GAINS = "Income:CapitalGains:Broker"
 

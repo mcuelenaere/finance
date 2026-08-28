@@ -127,6 +127,14 @@ SPLIT = re.compile(
 
 #: Where positions are held. One account holding many commodities: FIFO applies per commodity,
 #: so splitting per instrument would buy nothing.
+#: Optional ``own_accounts`` key for where units are held. Defaults to a sibling of the cash
+#: account, which is only right when the two live in one branch — so a ledger that files cash
+#: and holdings under different roots must say where this one goes.
+POSITIONS_ACCOUNT_KEY = "degiro_positions"
+
+#: Optional ``own_accounts`` key for the money-market fund idle cash is parked in. Same
+#: reasoning: it is cash-like, so a ledger may well file it away from the holdings.
+MONEY_MARKET_ACCOUNT_KEY = "degiro_money_market"
 POSITIONS_LEAF = "Positions"
 
 #: Lot matching for disposals. A broker export never names the lot being sold.
@@ -233,7 +241,7 @@ def _row_amount(row: list[str], previous: Decimal | None) -> tuple[Decimal, str]
     return None
 
 
-def _counter_account(description: str, cash: str, flatex: str) -> str | None:
+def _counter_account(description: str, flatex: str, money_market: str) -> str | None:
     """The other side, where the row's own description already determines it.
 
     Both of these are movements between DEGIRO's own pots, so booking them here keeps them out
@@ -246,14 +254,15 @@ def _counter_account(description: str, cash: str, flatex: str) -> str | None:
     ):
         return flatex
     if any(marker in description for marker in MONEY_MARKET):
-        return _sibling(cash, "MoneyMarket")
+        return money_market
     return None
 
 
 def parse_from_io(handle, accounts: Accounts, *, source_file: str = "") -> Iterator[Directive]:
     cash = resolve_account(accounts, ACCOUNT_KEY, source=source_file or INSTITUTION)
     flatex = accounts.get(FLATEX_ACCOUNT_KEY.upper()) or _sibling(cash, "Flatex")
-    positions = _sibling(cash, POSITIONS_LEAF)
+    positions = accounts.get(POSITIONS_ACCOUNT_KEY.upper()) or _sibling(cash, POSITIONS_LEAF)
+    money_market = accounts.get(MONEY_MARKET_ACCOUNT_KEY.upper()) or _sibling(cash, "MoneyMarket")
     gains = accounts.get(GAINS_ACCOUNT_KEY.upper(), DEFAULT_GAINS_ACCOUNT)
     booked_positions = False
     held: dict[str, Decimal] = {}
@@ -294,7 +303,7 @@ def parse_from_io(handle, accounts: Accounts, *, source_file: str = "") -> Itera
         if product and isin:
             narration = f"{normalize_text(product)} ({isin}): {narration}"
 
-        counter = _counter_account(description, cash, flatex)
+        counter = _counter_account(description, flatex, money_market)
 
         postings = _postings(
             held=held,

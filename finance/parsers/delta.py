@@ -46,6 +46,10 @@ DEFAULT_ACCOUNT_KEY = "delta"
 ACCOUNT_FIELD = "account"
 
 #: Where the fund units are held, and how a future disposal picks its lots.
+#: Where units are held. Derived from whichever account the export names — `<key>_positions`
+#: in ``own_accounts`` — falling back to a sibling of the cash account. The fallback is only
+#: right when cash and holdings live in one branch.
+POSITIONS_KEY_SUFFIX = "_positions"
 POSITIONS_LEAF = "Positions"
 BOOKING = "FIFO"
 
@@ -65,7 +69,10 @@ def parse_file(path: str, accounts: Accounts) -> Iterator[Directive]:
 
     key = str(export.get(ACCOUNT_FIELD) or DEFAULT_ACCOUNT_KEY)
     cash = resolve_account(accounts, key, source=path)
-    positions = f"{cash.rpartition(':')[0]}:{POSITIONS_LEAF}"
+    positions = accounts.get(
+        f"{key}{POSITIONS_KEY_SUFFIX}".upper(),
+        f"{cash.rpartition(':')[0]}:{POSITIONS_LEAF}",
+    )
 
     rows = export.get("transactions") or []
     # Sorted explicitly: the export is newest-first, and the build must not depend on the order

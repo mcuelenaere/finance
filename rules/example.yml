@@ -17,7 +17,7 @@ income_fallback_account: Income:Unknown
 # Clearing account for money moving between accounts you own. Both legs post here, so it
 # nets to zero once they pair up — a non-zero balance means a leg is missing or
 # double-counted. See `finance check`.
-transfer_account: Assets:Transfers
+transfer_account: Assets:Clearing:Transfers
 
 # Your own accounts. This does double duty:
 #   1. resolves which Beancount account a statement file belongs to, and
@@ -28,10 +28,10 @@ transfer_account: Assets:Transfers
 # "be12345678901234" are the same key. Brokers with no IBAN in their export use the fixed
 # key their parser declares (ACCOUNT_KEY): degiro, coinbase_pro.
 own_accounts:
-  BE12 3456 7890 1234: Assets:Belfius:Checking
-  BE98 7654 3210 9876: Assets:Belfius:Savings
-  123-4567890-12: Assets:ING:Checking
-  degiro: Assets:Investments:Degiro:Cash
+  BE12 3456 7890 1234: Assets:Cash:Belfius:Checking
+  BE98 7654 3210 9876: Assets:Savings:Belfius
+  123-4567890-12: Assets:Cash:ING:Checking
+  degiro: Assets:Cash:Degiro:Main
   coinbase_pro: Assets:Crypto:CoinbasePro:Cash
 
 # Raw exports to read. Globs are relative to the repo root. Keep these paths ASCII — macOS
@@ -76,7 +76,7 @@ rules:
   # these to an expense account is what makes net worth come out wrong.
   - field: narration
     regex: aandelen
-    account: Assets:Investments:Degiro:Cash
+    account: Assets:Cash:Degiro:Main
 
   - field: payee
     value: DEGIRO

@@ -23,7 +23,7 @@ def txn(payee=None, narration="", amount="-10", **meta):
         tags=frozenset(),
         links=frozenset(),
         postings=(
-            Posting(account="Assets:Belfius:Checking", units=Amount(Decimal(amount), "EUR")),
+            Posting(account="Assets:Cash:Belfius:Checking", units=Amount(Decimal(amount), "EUR")),
             Posting(account=None, units=None),
         ),
     )
@@ -34,7 +34,7 @@ def ruleset(*rules, own_accounts=None):
         rules=tuple(parse_rule(rule) for rule in rules),
         own_accounts=own_accounts or {},
         fallback_account="Expenses:Unknown",
-        transfer_account="Assets:Transfers",
+        transfer_account="Assets:Clearing:Transfers",
     )
 
 
@@ -84,19 +84,19 @@ def test_own_accounts_beat_rules():
     """
     rules = ruleset(
         {"field": "payee", "regex": ".*", "account": "Expenses:Food"},
-        own_accounts={"BE12345678901234": "Assets:Belfius:Savings"},
+        own_accounts={"BE12345678901234": "Assets:Savings:Belfius"},
     )
 
     match = rules.classify(txn(payee="ANYTHING", counterparty_iban="BE12 3456 7890 1234"))
-    assert match.account == "Assets:Transfers"
+    assert match.account == "Assets:Clearing:Transfers"
     assert match.reason == REASON_OWN_ACCOUNT
 
 
 def test_own_account_matching_ignores_iban_spacing():
-    rules = ruleset(own_accounts={"BE12345678901234": "Assets:Belfius:Savings"})
+    rules = ruleset(own_accounts={"BE12345678901234": "Assets:Savings:Belfius"})
 
-    assert rules.account_for_identifier("BE12 3456 7890 1234") == "Assets:Belfius:Savings"
-    assert rules.account_for_identifier("BE12345678901234") == "Assets:Belfius:Savings"
+    assert rules.account_for_identifier("BE12 3456 7890 1234") == "Assets:Savings:Belfius"
+    assert rules.account_for_identifier("BE12345678901234") == "Assets:Savings:Belfius"
     assert rules.account_for_identifier("BE00000000000000") is None
 
 
@@ -106,7 +106,7 @@ def test_resolve_fills_the_unresolved_posting():
     resolved = rules.resolve(txn(payee="DELHAIZE"))
 
     assert [p.account for p in resolved.postings] == [
-        "Assets:Belfius:Checking",
+        "Assets:Cash:Belfius:Checking",
         "Expenses:Food",
     ]
     # The elided amount is left for Beancount to balance.
@@ -151,18 +151,18 @@ def test_own_account_matched_by_either_spelling():
     Declaring one spelling and missing the other silently books the account holder's own
     transfers as expenses — the error that inflates net worth with nothing looking broken.
     """
-    domestic = ruleset(own_accounts={"123-4567890-12": "Assets:ING:Checking"})
-    by_iban = ruleset(own_accounts={"BE53123456789012": "Assets:ING:Checking"})
+    domestic = ruleset(own_accounts={"123-4567890-12": "Assets:Cash:ING:Checking"})
+    by_iban = ruleset(own_accounts={"BE53123456789012": "Assets:Cash:ING:Checking"})
 
     for rules in (domestic, by_iban):
-        assert rules.account_for_identifier("123-4567890-12") == "Assets:ING:Checking"
-        assert rules.account_for_identifier("BE53 1234 5678 9012") == "Assets:ING:Checking"
+        assert rules.account_for_identifier("123-4567890-12") == "Assets:Cash:ING:Checking"
+        assert rules.account_for_identifier("BE53 1234 5678 9012") == "Assets:Cash:ING:Checking"
 
 
 def test_transfer_detected_when_the_export_uses_the_other_spelling():
     rules = ruleset(
         {"field": "payee", "regex": ".*", "account": "Expenses:Food"},
-        own_accounts={"123-4567890-12": "Assets:ING:Checking"},
+        own_accounts={"123-4567890-12": "Assets:Cash:ING:Checking"},
     )
 
     match = rules.classify(txn(payee="MY OWN NAME", counterparty_iban="BE53 1234 5678 9012"))
@@ -250,7 +250,7 @@ def test_a_constrained_rule_declines_when_the_amount_is_unknown():
         {"field": "payee", "value": "EMPLOYER", "account": "Income:Salary", "direction": "in"}
     )
     without_amount = txn(payee="EMPLOYER")._replace(
-        postings=(Posting(account="Assets:Belfius:Checking", units=None),)
+        postings=(Posting(account="Assets:Cash:Belfius:Checking", units=None),)
     )
 
     assert rules.classify(without_amount).account == "Expenses:Unknown"
@@ -311,7 +311,7 @@ def test_an_amountless_transaction_keeps_the_expense_fallback():
     """Nothing to judge the direction by, so the historical default stands."""
     rules = ruleset()
     without_amount = txn(payee="MYSTERY")._replace(
-        postings=(Posting(account="Assets:Belfius:Checking", units=None),)
+        postings=(Posting(account="Assets:Cash:Belfius:Checking", units=None),)
     )
 
     assert rules.classify(without_amount).account == "Expenses:Unknown"

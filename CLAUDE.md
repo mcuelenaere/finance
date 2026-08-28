@@ -108,7 +108,7 @@ constraining do not have to be guessed at.
 
 **Money moving between your own accounts is the dangerous case.** Both banks export it, so
 naively both legs land and the balance doubles — silently inflating net worth. Every such
-account belongs in `own_accounts`, which routes both legs through `Assets:Transfers`. That
+account belongs in `own_accounts`, which routes both legs through `Assets:Clearing:Transfers`. That
 account nets to zero once legs pair, so a persistent non-zero balance means a leg is missing or
 double-counted. `finance check` reports it.
 
