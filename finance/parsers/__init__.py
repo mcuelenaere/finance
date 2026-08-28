@@ -11,6 +11,7 @@ from collections.abc import Callable, Iterator
 from finance.models import Directive
 from finance.parsers import (
     belfius_be,
+    belfius_card,
     bux,
     coinbase,
     coinbase_pro,
@@ -29,6 +30,7 @@ Parser = Callable[[str, Accounts], Iterator[Directive]]
 
 FORMATS: dict[str, Parser] = {
     "belfius_be": belfius_be.parse_file,
+    "belfius_card": belfius_card.parse_file,
     "bux": bux.parse_file,
     "coinbase": coinbase.parse_file,
     "coinbase_pro": coinbase_pro.parse_file,
