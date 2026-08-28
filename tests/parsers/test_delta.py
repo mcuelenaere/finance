@@ -23,6 +23,14 @@ CASH = "Assets:Cash:PensionSavings"
 POSITIONS = "Assets:Investments:PensionSavings"
 
 
+def _tmp():
+    """A scratch directory, so the granted-export tests need no fixture threading."""
+    import tempfile
+    from pathlib import Path
+
+    return Path(tempfile.mkdtemp())
+
+
 def write(tmp_path, transactions, positions=(), as_of=None, account=ACCOUNT_KEY):
     payload = {
         "account": account,
@@ -195,3 +203,127 @@ def test_the_named_account_is_the_one_resolved(tmp_path):
     (txn,) = transactions(list(delta.parse_file(path, {"SOMEWHERE_ELSE": "Assets:Other:Cash"})))
 
     assert txn.postings[1].account == "Assets:Other:Cash"
+
+
+# --- units that were awarded rather than bought -----------------------------------------
+
+GRANTED_ACCOUNTS = {"ETORO_OPTIONS": "Assets:Investments:EquityAwards:Etoro"}
+AWARD = "Assets:Investments:EquityAwards:Etoro"
+
+
+def granted(tmp_path, transactions, positions=(), as_of=None):
+    payload = {
+        "account": "etoro_options",
+        "payee": "eToro equity award",
+        "cost_basis": "granted",
+        "transactions": list(transactions),
+        "positions": list(positions),
+    }
+    if as_of:
+        payload["as_of"] = as_of
+    path = tmp_path / "options.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return str(path)
+
+
+def award(date, way, amount, price, txn_id=1):
+    return {
+        "id": txn_id,
+        "datetime": f"{date}T10:00:00.000Z",
+        "way": way,
+        "base": "AWRD",
+        "quote": "USD",
+        "amount": amount,
+        "price": {"value": price, "currency": "EUR"},
+        "fee": None,
+    }
+
+
+def test_awarded_units_arrive_at_no_cost_whatever_price_the_export_states():
+    """The price is a valuation, not consideration — nothing was paid for them. It is also a
+    euro conversion made at fetch time rather than on the transaction date, so using it as a
+    cost basis would make the ledger drift with the exchange rate."""
+    path = granted(tmp_path=_tmp(), transactions=[award("2019-10-28", "BUY", 16000, 6.0464129)])
+
+    (txn,) = [d for d in delta.parse_file(path, GRANTED_ACCOUNTS) if isinstance(d, Transaction)]
+
+    held, counter = txn.postings
+    assert held.account == AWARD
+    assert held.units == (Decimal("16000"), "AWRD")
+    assert held.cost.number == Decimal(0)
+    assert held.cost.total is True
+    assert txn.payee == "eToro equity award"
+    # Explicit, not elided: the transaction already balances, and Beancount deletes an elided
+    # posting it cannot give a number — so the far side would vanish from the ledger.
+    assert counter.account is None
+    assert counter.units == (Decimal(0), "USD")
+
+
+def test_a_granted_disposal_books_no_proceeds_and_no_gain():
+    """The money from selling an award arrives elsewhere — as payments from the employer that
+    administers it — and is recognised as income there. Booking proceeds here as well would
+    count the same money twice."""
+    path = granted(
+        tmp_path=_tmp(),
+        transactions=[
+            award("2019-10-28", "BUY", 16000, 6.0464129, txn_id=1),
+            award("2025-05-15", "SELL", 1216, 43.714674, txn_id=2),
+        ],
+    )
+
+    txns = [d for d in delta.parse_file(path, GRANTED_ACCOUNTS) if isinstance(d, Transaction)]
+    sale = txns[-1]
+
+    held, counter = sale.postings
+    assert held.units == (Decimal("-1216"), "AWRD")
+    assert held.cost.number is None, "the booking method picks the lot"
+    assert held.cost.currency == "USD"
+    assert counter.units == (Decimal(0), "USD")
+    assert all(p.account != "Income:CapitalGains:ETOR" for p in sale.postings), (
+        "no gain is derived here"
+    )
+
+
+def test_a_granted_export_needs_no_cash_account():
+    """Nothing is paid and nothing is received, so the key names the holdings account itself
+    rather than a cash leaf with a positions sibling."""
+    path = granted(tmp_path=_tmp(), transactions=[award("2019-10-28", "BUY", 16000, 6.0464129)])
+
+    directives = delta.parse_file(path, GRANTED_ACCOUNTS)
+    accounts = {p.account for d in directives if isinstance(d, Transaction) for p in d.postings}
+
+    assert accounts == {AWARD, None}
+
+
+def test_a_granted_export_still_asserts_the_holdings_it_fetched_separately():
+    path = granted(
+        tmp_path=_tmp(),
+        transactions=[
+            award("2019-10-28", "BUY", 16000, 6.0464129, txn_id=1),
+            award("2025-05-15", "SELL", 1216, 43.714674, txn_id=2),
+        ],
+        positions=[{"shortCode": "AWRD", "holdings": "14784"}],
+        as_of="2026-08-28",
+    )
+
+    (balance,) = [d for d in delta.parse_file(path, GRANTED_ACCOUNTS) if isinstance(d, Balance)]
+
+    assert balance.account == AWARD
+    assert balance.amount == (Decimal("14784"), "AWRD")
+
+
+def test_the_holdings_account_is_opened_fifo_for_a_granted_export():
+    path = granted(tmp_path=_tmp(), transactions=[award("2019-10-28", "BUY", 16000, 6.0464129)])
+
+    (opened,) = [d for d in delta.parse_file(path, GRANTED_ACCOUNTS) if isinstance(d, Open)]
+
+    assert opened.account == AWARD
+    assert opened.booking == "FIFO"
+
+
+def test_an_export_that_names_no_payee_does_not_borrow_another_portfolios():
+    path = write(_tmp(), [buy("2024-04-02", "BE0000000001", 4.741, 174.08)])
+
+    (txn,) = [d for d in delta.parse_file(path, ACCOUNTS) if isinstance(d, Transaction)]
+
+    assert txn.payee == delta.DEFAULT_PAYEE
