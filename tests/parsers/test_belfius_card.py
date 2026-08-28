@@ -263,9 +263,7 @@ def test_the_transaction_id_comes_from_the_content_not_the_filename():
         total="19,48 EUR -",
     )
 
-    again = list(
-        belfius_card.parse_from_text(text, ACCOUNTS, source_file="a-different-name.pdf")
-    )
+    again = list(belfius_card.parse_from_text(text, ACCOUNTS, source_file="a-different-name.pdf"))
 
     first = [t.meta["transaction_id"] for t in transactions(parse(text))]
     second = [t.meta["transaction_id"] for t in transactions(again)]

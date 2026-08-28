@@ -137,8 +137,14 @@ def test_a_failed_row_that_names_an_amount_still_debits():
     nothing else in the file contradicts it — the drift is invisible until it is compared with
     a stated balance."""
     row = purchase(
-        "r1", "2024-05-02T10:00:00.000Z", 0.01529, "ETH", 38.65, "EUR",
-        status="Failed", reason=None,
+        "r1",
+        "2024-05-02T10:00:00.000Z",
+        0.01529,
+        "ETH",
+        38.65,
+        "EUR",
+        status="Failed",
+        reason=None,
     )
 
     directives = parse(row)
@@ -157,8 +163,14 @@ def test_a_failed_row_that_names_an_amount_still_debits():
 
 def test_a_failed_row_with_no_amount_books_nothing():
     row = purchase(
-        "r2", "2024-05-02T10:00:00.000Z", None, "ETH", 38.65, "EUR",
-        status="Failed", reason=None,
+        "r2",
+        "2024-05-02T10:00:00.000Z",
+        None,
+        "ETH",
+        38.65,
+        "EUR",
+        status="Failed",
+        reason=None,
     )
 
     assert transactions(parse(row)) == []
@@ -166,8 +178,14 @@ def test_a_failed_row_with_no_amount_books_nothing():
 
 def test_insufficient_funds_books_nothing():
     row = purchase(
-        "r3", "2024-05-02T10:00:00.000Z", None, "ETH", 12.00, "EUR",
-        status="Failed", reason="InsufficientFunds",
+        "r3",
+        "2024-05-02T10:00:00.000Z",
+        None,
+        "ETH",
+        12.00,
+        "EUR",
+        status="Failed",
+        reason="InsufficientFunds",
     )
 
     assert transactions(parse(row)) == []
@@ -264,9 +282,7 @@ def test_a_disposal_pins_the_cost_currency():
 def test_a_euro_funded_purchase_books_what_left_the_account():
     """The account paid euro and the merchant charged pounds, and no rate is quoted for that
     pair — so the euro is the expense and the pound figure is kept as metadata."""
-    row = purchase(
-        "r7", "2024-05-02T10:00:00.000Z", 1.39, "EUR", 1.20, "GBP", funding=EUR_ACCOUNT
-    )
+    row = purchase("r7", "2024-05-02T10:00:00.000Z", 1.39, "EUR", 1.20, "GBP", funding=EUR_ACCOUNT)
 
     (txn,) = transactions(parse(row))
 
@@ -281,8 +297,14 @@ def test_a_euro_funded_purchase_books_what_left_the_account():
 
 def test_a_fee_charged_on_top_is_added_to_what_left():
     row = purchase(
-        "r8", "2024-05-02T10:00:00.000Z", 1.00, "EUR", 1.00, "EUR",
-        funding=EUR_ACCOUNT, fee=money(0.25, "EUR", 2),
+        "r8",
+        "2024-05-02T10:00:00.000Z",
+        1.00,
+        "EUR",
+        1.00,
+        "EUR",
+        funding=EUR_ACCOUNT,
+        fee=money(0.25, "EUR", 2),
     )
 
     (txn,) = transactions(parse(row))
@@ -519,9 +541,7 @@ def test_the_positions_account_is_opened_for_fifo_at_the_earliest_holding():
 
 
 def test_a_euro_only_export_opens_no_positions_account():
-    row = purchase(
-        "a", "2024-05-02T10:00:00.000Z", 1.00, "EUR", 1.00, "EUR", funding=EUR_ACCOUNT
-    )
+    row = purchase("a", "2024-05-02T10:00:00.000Z", 1.00, "EUR", 1.00, "EUR", funding=EUR_ACCOUNT)
 
     assert [d for d in parse(row) if isinstance(d, Open)] == []
 
@@ -545,7 +565,12 @@ def test_an_undeclared_account_raises_rather_than_being_guessed():
 
 def test_merchant_detail_is_kept_for_rules_to_match_on():
     row = purchase(
-        "a", "2024-05-02T10:00:00.000Z", 0.001, "ETH", 2.50, "EUR",
+        "a",
+        "2024-05-02T10:00:00.000Z",
+        0.001,
+        "ETH",
+        2.50,
+        "EUR",
         original_category={"id": 3, "name": "Groceries"},
         comment="WIDGET SHOP,BRUSSELS,BEL",
         reward={

@@ -69,11 +69,14 @@ a rewrite was sufficient.
 
 ## Commands
 
+CI runs all three of these, so `ruff format --check` failing is a red build even when
+`ruff check` passes — they are different tools and the linter does not imply the formatter.
+
 ```bash
 uv run finance build <slug>     # regenerate ledger/<slug>/generated.beancount
 uv run finance review <slug>    # unmatched transactions, biggest first — the work queue
 uv run finance check <slug>     # bean-check + transfer clearing report
-uv run pytest && uv run ruff check .
+uv run pytest && uv run ruff check . && uv run ruff format --check .
 ```
 
 Ledgers are addressed by ASCII slug (`prive`). Keep data directory names ASCII too: macOS
