@@ -14,6 +14,9 @@ Two tiers, because the sources differ in what they give us:
    two identical coffees on the same day are two real payments. Instead, count how often each
    key occurs within each file and keep the **maximum** across files, never the sum. An
    overlapping file re-reports the same two coffees, so the max is 2 — correct either way.
+
+   The key itself must be stable across exports, which rules out the description: see
+   :func:`_heuristic_key`.
 """
 
 from __future__ import annotations
@@ -23,10 +26,9 @@ from collections.abc import Iterable
 from decimal import Decimal
 
 from finance.models import Balance, Directive, Open, Price, Transaction
-from finance.text import normalize_text
 
 #: Key identifying "the same transaction" when the source gives us no id of its own.
-_Key = tuple[str | None, object, Decimal | None, str]
+_Key = tuple[str | None, object, Decimal | None, str | None]
 
 
 def _identity(txn: Transaction) -> tuple[object, ...] | None:
@@ -37,11 +39,42 @@ def _identity(txn: Transaction) -> tuple[object, ...] | None:
     return (txn.meta.get("institution"), str(transaction_id))
 
 
+#: Fields a bank assigns itself, in preference order. Stable across re-exports, unlike the
+#: description — which is the whole point of using them.
+STABLE_FIELDS = ("entry_number",)
+
+
+def _discriminator(txn: Transaction) -> str | None:
+    """A bank-assigned reference for this row, if the export carries one."""
+    for field in STABLE_FIELDS:
+        value = txn.meta.get(field)
+        if value:
+            return f"{field}={value}"
+    return None
+
+
 def _heuristic_key(txn: Transaction) -> _Key:
+    """What makes two rows "the same transaction" when the source gives no id.
+
+    THE DESCRIPTION IS DELIBERATELY NOT PART OF THIS. It used to be, and it was a trap: banks
+    reword their own descriptions, and a re-export of an already-imported period then looks
+    like an entirely new set of transactions. ING did exactly that — `Aankoop Bancontact/Mister
+    Cash` became `Betaling Bancontact`, `Europese overschrijving` became `Overschrijving in
+    euro` — so a fresh export of a decade already on file silently doubled ten years of it.
+    Nothing failed; the numbers were simply twice as large.
+
+    Leaving it out costs nothing, because distinguishing two genuinely-identical transactions
+    was never this key's job — that is what counting per file and taking the maximum does. A
+    coarser key with correct counting is right; a precise key that changes wording is not.
+
+    Where the bank assigns its own row reference the key uses that instead, which is strictly
+    better: it separates two same-day, same-amount transactions outright rather than relying on
+    the count.
+    """
     posting = txn.postings[0] if txn.postings else None
     account = posting.account if posting else None
     number = posting.units.number if posting and posting.units else None
-    return (account, txn.date, number, normalize_text(txn.narration))
+    return (account, txn.date, number, _discriminator(txn))
 
 
 def dedupe(transactions: Iterable[Transaction]) -> list[Transaction]:

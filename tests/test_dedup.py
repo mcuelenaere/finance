@@ -141,3 +141,76 @@ def test_conflicting_balance_directives_are_kept():
     ]
 
     assert len(dedupe_directives(directives)) == 2
+
+
+# --- the key must survive a bank rewording its own descriptions -------------------------
+# This is the bug that made the key what it is. ING re-exported a decade already on file and
+# reworded every description in it — `Aankoop Bancontact/Mister Cash` became `Betaling
+# Bancontact`, `Europese overschrijving` became `Overschrijving in euro`. With the description
+# in the key, 619 rows matched 127 of their own twins and ten years of history silently
+# doubled. Nothing failed; the numbers were simply twice as large.
+
+
+def reworded(date_, amount, narration, *, source, entry=None):
+    meta = {"institution": "ing_be", "source_file": source}
+    if entry is not None:
+        meta["entry_number"] = str(entry)
+    return Transaction(
+        meta=meta,
+        date=date_,
+        flag=FLAG_OKAY,
+        payee=None,
+        narration=narration,
+        tags=frozenset(),
+        links=frozenset(),
+        postings=(
+            Posting(account="Assets:ING:Checking", units=Amount(Decimal(amount), "EUR")),
+            Posting(account=None, units=None),
+        ),
+    )
+
+
+def test_a_reworded_description_is_still_the_same_transaction():
+    day = date(2014, 1, 2)
+    rows = [
+        reworded(day, "-19.95", "Aankoop Bancontact/Mister Cash - 19,95 COLRUYT", source="old.csv"),
+        reworded(day, "-19.95", "Betaling Bancontact - 19,95 COLRUYT", source="new.csv"),
+    ]
+
+    assert len(dedupe(rows)) == 1
+
+
+def test_the_banks_own_row_reference_separates_two_same_day_amounts():
+    """Two distinct transfers of the same amount on the same day are two payments."""
+    day = date(2014, 1, 7)
+    rows = [
+        reworded(day, "-260.00", "Overschrijving MyING.be", source="old.csv", entry=5),
+        reworded(day, "-260.00", "Overschrijving MyING.be", source="old.csv", entry=9),
+    ]
+
+    assert len(dedupe(rows)) == 2
+
+
+def test_a_reference_pairs_the_same_row_across_a_rewording():
+    day = date(2014, 1, 7)
+    rows = [
+        reworded(day, "-260.00", "Overschrijving MyING.be", source="old.csv", entry=5),
+        reworded(
+            day, "-260.00", "Overschrijving in euro (SEPA): MyING.be", source="new.csv", entry=5
+        ),
+    ]
+
+    assert len(dedupe(rows)) == 1
+
+
+def test_genuine_same_day_repeats_still_survive_without_any_reference():
+    """Counting per file, not the key's precision, is what protects real duplicates."""
+    day = date(2014, 3, 1)
+    rows = [
+        reworded(day, "-3.20", "Aankoop", source="old.csv"),
+        reworded(day, "-3.20", "Aankoop", source="old.csv"),
+        reworded(day, "-3.20", "Betaling", source="new.csv"),
+        reworded(day, "-3.20", "Betaling", source="new.csv"),
+    ]
+
+    assert len(dedupe(rows)) == 2
