@@ -204,12 +204,17 @@ def parse_from_io(handle, accounts: Accounts, *, source_file: str = "") -> Itera
                 Posting(account=None, units=None),
             ]
 
+        # A deposit of euro and a deposit of bitcoin are the same word in this export but very
+        # different transactions: one pairs with a bank, the other with a wallet. Naming the
+        # asset on crypto rows is what lets a rule tell them apart.
+        narration = kind if currency in FIAT else f"{kind} {currency}"
+
         yield Transaction(
             meta=meta,
             date=date,
             flag=FLAG_OKAY,
             payee="Coinbase Pro",
-            narration=kind,
+            narration=narration,
             tags=frozenset(),
             links=frozenset(),
             postings=tuple(postings),

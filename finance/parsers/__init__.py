@@ -12,6 +12,7 @@ from finance.models import Directive
 from finance.parsers import (
     belfius_be,
     bux,
+    coinbase,
     coinbase_pro,
     degiro,
     delta,
@@ -28,6 +29,7 @@ Parser = Callable[[str, Accounts], Iterator[Directive]]
 FORMATS: dict[str, Parser] = {
     "belfius_be": belfius_be.parse_file,
     "bux": bux.parse_file,
+    "coinbase": coinbase.parse_file,
     "coinbase_pro": coinbase_pro.parse_file,
     "degiro": degiro.parse_file,
     "delta": delta.parse_file,
