@@ -186,6 +186,23 @@ TESTCASES = (
         "2019-06-26",
         id="ing-own-typo-incoming",
     ),
+    # The `Naar: <name> - <iban>` form appears in the detail block as well as the description,
+    # and was only ever searched for in the description. Three transfers to a broker lost their
+    # counterparty that way — while the broker's own export recorded the money arriving, so the
+    # pair could not be recognised as internal and the same money stood twice.
+    pytest.param(
+        r"390-1234567-89;DE H JOHN DOE;;422;02/08/2023;02/08/2023;-1681,30;EUR;"
+        r"Overschrijvingin Euro      ;"
+        r"Instantoverschrijving in euro: Internet                              "
+        r"     Naar: Business account Re Some Broker - NL12ABNA3456789012       "
+        r"     Instant op 02/08 - 10:32:57                                     "
+        r"     Mededeling: abcdef                                              ;",
+        "Business account Re Some Broker",
+        "NL12ABNA3456789012",
+        Decimal("-1681.30"),
+        "2023-08-02",
+        id="hyphenated-counterparty-in-the-detail",
+    ),
 )
 
 

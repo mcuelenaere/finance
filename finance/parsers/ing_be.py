@@ -62,6 +62,23 @@ def _labelled(part: str, label: str) -> str | None:
 PARTY_LABELS = ("Van", "Ten gunste van")
 
 
+#: Both sides of a transfer on a single part, joined by a hyphen.
+HYPHENATED_LABELS = ("Naar", "Ten gunste van", "Van")
+
+
+def _hyphenated_party(block: str) -> tuple[str | None, str | None]:
+    """``(name, IBAN)`` from a ``Naar: <name> - <iban>`` part, if one is present."""
+    for part in _parts(block):
+        for label in HYPHENATED_LABELS:
+            value = _labelled(part, label)
+            if value is None:
+                continue
+            name, _, number = value.partition(" - ")
+            if name.strip() and number.strip():
+                return name.strip(), number.strip()
+    return None, None
+
+
 def _detail_parties(detail: str) -> tuple[str | None, str | None]:
     """``(counterparty name, IBAN)`` from a transfer's detail block.
 
@@ -129,17 +146,17 @@ def _counterparty(row: dict[str, str]) -> tuple[str | None, str | None]:
         if name or number:
             return name, number
 
-    # A transfer names its counterparty as `Naar: <name> - <iban>` in the description. This
-    # used to be gated on a list of description prefixes, which meant every ING rename of a
-    # payment channel silently dropped the counterparty: `Overschrijving in euro (SEPA)
-    # Home\'Bank` and `Overschrijving in euro (SEPA): Home\'Bank` differ by one colon, and only
-    # one of them was listed. Keying on the labelled part instead makes the channel irrelevant.
-    for part in re.split(r"\s{3,}", description):
-        for label in ("Naar: ", "Ten gunste van: ", "Van: "):
-            if part.startswith(label):
-                name, _, number = part[len(label) :].partition(" - ")
-                if name and number:
-                    return name.strip(), number.strip()
+    # The other shape a transfer uses: `Naar: <name> - <iban>`, both sides on one part.
+    #
+    # Searched in the description AND the detail, because ING puts it in either. This was once
+    # gated on a list of description prefixes, which meant every rename of a payment channel
+    # silently dropped the counterparty — one spelling differed from a listed one by a single
+    # colon. Keying on the label makes the channel irrelevant; searching both fields makes it
+    # irrelevant which of them the bank chose to write it in.
+    for block in (description, detail):
+        name, number = _hyphenated_party(block)
+        if name and number:
+            return name, number
 
     if row.get("Rekening tegenpartij"):
         return None, row["Rekening tegenpartij"]
