@@ -57,6 +57,25 @@ def _labelled(part: str, label: str) -> str | None:
     return None
 
 
+#: How the detail block labels the two sides of a transfer. `Van:` is the payer, and the two
+#: `... gunste van:` forms the payee; which appears depends on the direction.
+PARTY_LABELS = ("Van", "Ten gunste van")
+
+
+def _detail_parties(detail: str) -> tuple[str | None, str | None]:
+    """``(counterparty name, IBAN)`` from a transfer's detail block.
+
+    The name's part carries only the name — the address follows on parts of its own — so no
+    trimming is needed beyond the label.
+    """
+    name = number = None
+    for part in _parts(detail):
+        for label in PARTY_LABELS:
+            name = name or _labelled(part, label)
+        number = number or _labelled(part, "IBAN")
+    return name, number
+
+
 def _is_direct_debit(description: str) -> bool:
     return description.startswith(DIRECT_DEBIT_PREFIXES)
 
@@ -95,15 +114,15 @@ def _counterparty(row: dict[str, str]) -> tuple[str | None, str | None]:
     description = row.get("Omschrijving") or ""
     detail = row.get("Detail van de omzet") or ""
 
-    if description.startswith("Europese overschrijving"):
-        name = number = None
-        for part in re.split(r"\s{3,}", detail):
-            if part.startswith("Van: ") or part.startswith("Ten gunste van: "):
-                name = part.split(": ", 2)[1]
-            elif part.startswith("IBAN: ") or part.startswith("IBAN : "):
-                number = part.split(": ", 2)[1]
-        if name or number:
-            return name, number
+    # A transfer's detail block labels each side on its own part. This used to be gated on the
+    # description starting with "Europese overschrijving", which ING does not always write:
+    # two of its spellings are `Overschrijvingin euro` and `Overschrijvingin Euro`, missing a
+    # space in the bank's own export. Those rows arrived with no counterparty at all — and
+    # where the statement's counterparty column was also empty, with no IBAN either, so
+    # transfers to accounts the owner holds could not be recognised as internal.
+    name, number = _detail_parties(detail)
+    if name or number:
+        return name, number
 
     if _is_direct_debit(description):
         name, number = _direct_debit_parties(detail)

@@ -149,6 +149,43 @@ TESTCASES = (
         "2014-12-18",
         id="direct-debit-new-mandate-notice",
     ),
+    # ING writes this description without the space between the two words — its own export,
+    # not a parsing artefact — so it starts with none of the recognised prefixes. The detail
+    # block is perfectly well formed. Gating the extraction on the description meant these
+    # rows arrived with no counterparty, and where the statement's counterparty column was
+    # also empty, with no IBAN either — so a transfer to an account the owner holds could not
+    # be recognised as internal.
+    pytest.param(
+        r"390-1234567-89;DE H JOHN DOE;;420;15/06/2021;15/06/2021;-1000,00;EUR;"
+        r"Overschrijvingin Euro      ;"
+        r"Instantoverschrijving in euro                                        "
+        r"     Instant op 15/06 - 00:07:14                                     "
+        r"     Ten gunste van: STICHTING SOMETHING                             "
+        r"     SOMESTREET 4                                                    "
+        r"     9999                                                            "
+        r"     SOMEWHERE                                                       "
+        r"     België                                                          "
+        r"     IBAN: BE12345678901234                                          ;",
+        "STICHTING SOMETHING",
+        "BE12345678901234",
+        Decimal("-1000.00"),
+        "2021-06-15",
+        id="ing-own-typo-in-the-description",
+    ),
+    pytest.param(
+        r"390-1234567-89;DE H JOHN DOE;;421;26/06/2019;26/06/2019;25,00;EUR;"
+        r"Overschrijvingin euro      ;"
+        r"Overschrijving in euro (SEPA)                                        "
+        r"     Van: JANE ROE                                                   "
+        r"     SOMESTREET 23                                                   "
+        r"     België                                                          "
+        r"     IBAN: BE98765432109876                                          ;",
+        "JANE ROE",
+        "BE98765432109876",
+        Decimal("25.00"),
+        "2019-06-26",
+        id="ing-own-typo-incoming",
+    ),
 )
 
 
