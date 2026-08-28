@@ -5,6 +5,15 @@ much ETH the settlement costs. So a "card payment" here is two facts at once —
 crypto and an ordinary household expense — and the export states both sides, which is why these
 rows can carry a merchant name *and* book a lot.
 
+**Which is why one such row becomes two transactions.** The obvious reading is one row in, one
+transaction out, but that puts a realised capital gain and a hardware-shop bill in the same
+entry, and then every merchant the card ever paid appears in the capital-gains account. Salary
+is not attached to the things it buys; neither is this. The pair pivots on the euro pocket Wirex
+converts through — the sale lands proceeds there, the purchase spends them — and the two net to
+nothing in it, which is why its stated balances still reconcile. They share a link so the
+relationship stays visible instead of merely implied, and the metadata is split so the crypto
+half carries no merchant and the merchant half no blockchain.
+
 ``amount_from`` is what left the funding account; ``amount_to`` is what the merchant received.
 They are frequently different currencies and **no euro value is given for the pair**, so the
 expense is booked as whichever of the two is fiat: what actually left the account when that is
@@ -27,15 +36,18 @@ balance is a placeholder that is always zero and must not be read as one. Every 
 anchors agrees with the amounts to the last decimal, which is what makes the
 missing-``Failed``-row fault detectable at all rather than a slow silent drift.
 
-**Cost basis: units arriving here are booked at zero**, as in both Coinbase exports, because
-nothing states what they cost — the ETH arrives from a self-custody wallet whose own history is
-not among the sources. The consequence is worth stating plainly, because the sums are not
-small: a zero basis recognises the *whole* value of the ETH as realised gain when it is spent,
-where the real gain is only what it appreciated. Net worth is unaffected — the invented gain
-offsets the spending to the cent — but the crypto gain becomes a ceiling rather than a
-measurement, and most of what it holds is appreciation earned in the wallet before Wirex ever
-saw it. Point ``wirex_gains`` at a leaf of its own to keep that apart from gains that are
-actually measured.
+**Cost basis: units arriving here are booked at zero, and that is a decision rather than a
+gap.** The ETH arrives from a self-custody wallet, and the owner's standing instruction is to
+treat everything coming out of it as pure profit: the wallet's history is too tangled to
+reconstruct — many years of trades — and the original investment was withdrawn long ago, so
+what is left there has no meaningful basis to carry forward. A zero cost therefore recognises
+the *whole* value of the ETH as realised gain when it is spent, which is the intended reading,
+not an approximation of one. Net worth is unaffected either way, since the gain offsets the
+spending to the cent.
+
+A rule names the wallet as the source, so the far side of an arrival is recorded even though
+its amount is zero. That is the same treatment both Coinbase exports get, which keeps one crypto
+gain figure comparable across every venue instead of one per basis convention.
 
 That zero basis is also what lets a purchase settled in a foreign currency balance: the lot
 contributes nothing to the euro group, so the elided gain posting has only the settlement
@@ -354,6 +366,47 @@ def _meta(move: Movement, source_file: str) -> dict[str, object]:
     return meta
 
 
+#: Metadata that describes the crypto leg, and belongs only on it.
+CRYPTO_META = frozenset({"blockchain", "tx_hash", "crypto_address", "fee"})
+
+#: Metadata that describes who was paid, and belongs only on the merchant or bank leg.
+COUNTERPARTY_META = frozenset(
+    {
+        "card_id",
+        "category",
+        "comment",
+        "counterparty_iban",
+        "foreign_amount",
+        "merchant_address",
+        "merchant_id",
+        "processing_category",
+        "reward_wxt",
+    }
+)
+
+
+def _for_side(meta: dict[str, object], side: str, suffix: str) -> dict[str, object]:
+    """The metadata belonging on one half of a split movement.
+
+    Splitting it matters for more than tidiness: a rule keyed on a merchant identifier would
+    otherwise see both halves. It cannot misroute the crypto half — that half leaves no posting
+    for the rules engine to fill — but a merchant id sitting on a transaction about selling
+    ether reads as though the ether had been sold *to* the merchant.
+    """
+    out = dict(meta)
+    if suffix and out.get("transaction_id"):
+        out["transaction_id"] = f"{out['transaction_id']}{suffix}"
+    if side == "crypto":
+        drop = COUNTERPARTY_META
+    elif side == "merchant":
+        drop = CRYPTO_META
+    else:
+        return out
+    for key in drop:
+        out.pop(key, None)
+    return out
+
+
 def _narration(move: Movement) -> tuple[str, str]:
     """Payee and narration, naming the asset so a rule can tell euro from ether."""
     name, _ = _party(move.row.get("target"))
@@ -383,54 +436,102 @@ def _narration(move: Movement) -> tuple[str, str]:
     return name or "Wirex", narration
 
 
-def _postings(move: Movement, *, cash: str, positions: str, gains: str) -> tuple[Posting, ...]:
-    """Postings for one movement, leaving at most one account for the rules engine.
+class Entry(NamedTuple):
+    """One transaction to emit. A movement becomes one of these, or two."""
 
-    Three parts, each optional: the units held, the Wirex fiat account, and the far side. A
-    fourth posting — the realised gain — is added whenever units *changed hands against a
-    stated fiat amount*, because that is exactly when the difference from the lot's cost is a
-    gain rather than a transfer. Units moving with no fiat beside them are a transfer, so the
-    elided far side absorbs the cost and no gain is invented.
+    postings: tuple[Posting, ...]
+    payee: str
+    narration: str
+    #: Distinguishes the two transactions of a split movement, in the id and the link.
+    suffix: str = ""
+    #: Which half of a split this is, so the right metadata lands on it.
+    side: str = "both"
+
+
+def _holding(move: Movement, positions: str) -> Posting:
+    """The posting that changes what is held."""
+    assert move.held is not None
+    if move.held.number > 0:
+        # Arriving. A fiat-funded exchange states the cost; anything else does not, and gets
+        # zero — see the module docstring for why that is a decision and not a gap.
+        stated = move.cost or Money(UNKNOWN_COST, UNKNOWN_COST_CURRENCY)
+        cost = Cost(stated.number, stated.currency, None, None, total=True)
+    else:
+        # Leaving: the booking method picks the lot and the gain falls out of it. The currency
+        # is named because a purchase settled in dollars would otherwise have Beancount infer a
+        # dollar cost basis and match none of the euro-cost lots.
+        cost = Cost(None, UNKNOWN_COST_CURRENCY, None, None)
+    return Posting(
+        account=positions,
+        units=Amount(move.held.number, move.held.currency),
+        cost=cost,
+    )
+
+
+def _entries(move: Movement, *, cash: str, positions: str, gains: str) -> list[Entry]:
+    """One movement as one transaction, or as two when it is really two events.
+
+    **A card purchase funded by crypto is two events, not one**: ether is sold, and euro is
+    spent at a merchant. Booking them as a single transaction is what a naive reading of the
+    row suggests — one row in, one transaction out — but it puts a realised capital gain and a
+    grocery bill in the same entry, so every merchant the card ever paid shows up in the
+    capital-gains account. Salary is not attached to the things it buys, and neither is this.
+
+    So the pair is split, pivoting on the euro pocket that Wirex converts through: the sale
+    lands the proceeds there, and the purchase spends them. The two net to nothing in that
+    account, which is why its stated balances still reconcile, and they carry a shared link so
+    the relationship stays visible rather than merely implied.
+
+    A refund is the same shape backwards: the merchant returns euro, and ether is bought with
+    it, reversing the gain the original purchase recognised.
     """
+    held, fiat, counter = move.held, move.cash, move.counter
+
+    if held is not None and counter is not None:
+        # Crypto changed hands against a stated merchant amount: two events.
+        proceeds = Amount(counter.number, counter.currency)
+        asset = held.currency
+        verb = "Sold" if held.number < 0 else "Bought"
+        return [
+            Entry(
+                postings=(
+                    _holding(move, positions),
+                    Posting(account=cash, units=proceeds),
+                    # The difference from the lot's cost is the realised gain.
+                    Posting(account=gains, units=None),
+                ),
+                payee="Wirex",
+                narration=f"{verb} {asset}",
+                suffix=":funding",
+                side="crypto",
+            ),
+            Entry(
+                postings=(
+                    Posting(account=cash, units=Amount(-counter.number, counter.currency)),
+                    Posting(account=None, units=Amount(counter.number, counter.currency)),
+                ),
+                payee="",  # filled in by the caller from the merchant
+                narration="",
+                side="merchant",
+            ),
+        ]
+
     postings: list[Posting] = []
+    if held is not None:
+        postings.append(_holding(move, positions))
+    if fiat is not None:
+        postings.append(Posting(account=cash, units=Amount(fiat.number, fiat.currency)))
 
-    if move.held is not None:
-        if move.held.number > 0:
-            # Arriving. A fiat-funded exchange states the cost; anything else does not, and
-            # gets zero — see the module docstring for what that does to the gain.
-            stated = move.cost or Money(UNKNOWN_COST, UNKNOWN_COST_CURRENCY)
-            cost = Cost(stated.number, stated.currency, None, None, total=True)
-        else:
-            # Leaving: the booking method picks the lot and the gain falls out of it. The
-            # currency is named because a purchase settled in dollars would otherwise have
-            # Beancount infer a dollar cost basis and match none of the euro-cost lots.
-            cost = Cost(None, UNKNOWN_COST_CURRENCY, None, None)
-        postings.append(
-            Posting(
-                account=positions,
-                units=Amount(move.held.number, move.held.currency),
-                cost=cost,
-            )
-        )
-
-    if move.cash is not None:
-        postings.append(Posting(account=cash, units=Amount(move.cash.number, move.cash.currency)))
-
-    if move.counter is not None:
-        postings.append(
-            Posting(account=None, units=Amount(move.counter.number, move.counter.currency))
-        )
-
-    priced = move.held is not None and (move.cash is not None or move.counter is not None)
+    priced = held is not None and fiat is not None
     if priced and move.cost is None:
-        # Units changed hands for a stated amount, so recognise the difference.
+        # An exchange: units sold for cash in one step, with nobody else involved.
         postings.append(Posting(account=gains, units=None))
-    elif not priced and move.cost is None:
+    elif move.cost is None:
         # Nothing names the far side, so the rules engine does. One elided posting absorbs
         # whatever is left, which for a pure transfer is the lot's own cost.
         postings.append(Posting(account=None, units=None))
 
-    return tuple(postings)
+    return [Entry(postings=tuple(postings), payee="", narration="")]
 
 
 def _rows(payload: object) -> list[dict]:
@@ -543,8 +644,9 @@ def parse_from_payload(
     first: Date | None = None
 
     for move in moves:
-        postings = _postings(move, cash=cash, positions=positions, gains=gains)
-        if not postings:
+        entries = _entries(move, cash=cash, positions=positions, gains=gains)
+        entries = [entry for entry in entries if entry.postings]
+        if not entries:
             continue
         payee, narration = _narration(move)
         meta = _meta(move, source_file)
@@ -552,21 +654,26 @@ def parse_from_payload(
         # renderer is told when each row happened rather than left to sort on amount, which
         # puts every disposal before its own acquisition.
         meta["sequence"] = _moment(str(move.row.get("created_at") or ""))
+        # A split movement's two halves share a link, so the sale and the purchase it funded
+        # can be read as the one event they came from rather than merely coinciding.
+        row_id = str(move.row.get("id") or "").strip()
+        links = frozenset({f"wirex-{row_id}"}) if len(entries) > 1 and row_id else frozenset()
 
         if move.held is not None:
             booked = True
             first = min(first or move.date, move.date)
 
-        yield Transaction(
-            meta=meta,
-            date=move.date,
-            flag=FLAG_OKAY,
-            payee=payee,
-            narration=narration,
-            tags=frozenset(),
-            links=frozenset(),
-            postings=postings,
-        )
+        for entry in entries:
+            yield Transaction(
+                meta=_for_side(meta, entry.side, entry.suffix),
+                date=move.date,
+                flag=FLAG_OKAY,
+                payee=entry.payee or payee,
+                narration=entry.narration or narration,
+                tags=frozenset(),
+                links=links,
+                postings=entry.postings,
+            )
 
     if booked and first:
         yield Open(

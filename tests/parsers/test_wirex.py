@@ -114,6 +114,20 @@ def balances(directives):
     return [d for d in directives if isinstance(d, Balance)]
 
 
+def sale(directives):
+    """The crypto half of a split movement — selling or buying the units."""
+    (found,) = [t for t in transactions(directives) if t.narration.split()[0] in ("Sold", "Bought")]
+    return found
+
+
+def spend(directives):
+    """The half naming who was paid."""
+    (found,) = [
+        t for t in transactions(directives) if t.narration.split()[0] not in ("Sold", "Bought")
+    ]
+    return found
+
+
 # --- the trap that made the balance drift ---------------------------------------------
 
 
@@ -127,16 +141,18 @@ def test_a_failed_row_that_names_an_amount_still_debits():
         status="Failed", reason=None,
     )
 
-    (txn,) = transactions(parse(row))
+    directives = parse(row)
 
-    held, expense, gain = txn.postings
+    held, proceeds, gain = sale(directives).postings
     assert held.units == (Decimal("-0.01529"), "ETH")
-    assert expense.account is None
-    assert expense.units == (Decimal("38.65"), "EUR")
+    assert proceeds.units == (Decimal("38.65"), "EUR")
     assert gain.account == GAINS
+    paid, expense = spend(directives).postings
+    assert paid.units == (Decimal("-38.65"), "EUR")
+    assert expense.account is None
     # And it must not read like an ordinary purchase, or a rule files it as spending while its
     # refund reads as income.
-    assert txn.narration == "Card payment (failed)"
+    assert spend(directives).narration == "Card payment (failed)"
 
 
 def test_a_failed_row_with_no_amount_books_nothing():
@@ -183,20 +199,52 @@ def test_a_one_way_row_is_decided_on_status_not_on_naming_an_amount():
 # --- what a card purchase means --------------------------------------------------------
 
 
-def test_a_card_purchase_is_a_disposal_and_an_expense_at_once():
+def test_a_card_purchase_is_two_transactions_a_sale_and_a_purchase():
+    """One row, two economic events. Booked as one transaction, a realised capital gain and a
+    grocery bill share an entry — so every merchant the card ever paid turns up in the
+    capital-gains account. Salary is not attached to the things it buys, and nor is this."""
     row = purchase("r5", "2024-05-02T10:00:00.000Z", 0.015213, "ETH", 37.71, "EUR")
 
-    (txn,) = transactions(parse(row))
+    directives = parse(row)
+    assert len(transactions(directives)) == 2
 
-    held, expense, gain = txn.postings
+    held, proceeds, gain = sale(directives).postings
     assert held.account == POSITIONS
     assert held.units == (Decimal("-0.015213"), "ETH")
     assert held.cost.number is None, "the booking method picks the lot"
-    assert expense.account is None, "the merchant is the rules engine's to decide"
-    assert expense.units == (Decimal("37.71"), "EUR")
+    assert proceeds.account == CASH
+    assert proceeds.units == (Decimal("37.71"), "EUR")
     assert gain.account == GAINS
     assert gain.units is None, "derived from the lot, not stated"
-    assert txn.payee == "Widget Shop"
+    assert sale(directives).payee == "Wirex", "nobody was paid in this half"
+
+    paid, expense = spend(directives).postings
+    assert paid.account == CASH
+    assert paid.units == (Decimal("-37.71"), "EUR"), "the two halves net to nothing here"
+    assert expense.account is None, "the merchant is the rules engine's to decide"
+    assert expense.units == (Decimal("37.71"), "EUR")
+    assert spend(directives).payee == "Widget Shop"
+
+
+def test_the_two_halves_share_a_link_so_the_pair_stays_readable():
+    row = purchase("r5b", "2024-05-02T10:00:00.000Z", 0.015213, "ETH", 37.71, "EUR")
+
+    directives = parse(row)
+
+    assert sale(directives).links == spend(directives).links == frozenset({"wirex-r5b"})
+
+
+def test_the_crypto_half_carries_no_merchant_and_the_merchant_half_no_blockchain():
+    """A merchant id on a transaction about selling ether reads as though the ether had been
+    sold *to* the merchant."""
+    row = purchase("r5c", "2024-05-02T10:00:00.000Z", 0.015213, "ETH", 37.71, "EUR")
+
+    directives = parse(row)
+
+    assert "merchant_id" not in sale(directives).meta
+    assert "merchant_id" in spend(directives).meta
+    assert sale(directives).meta["transaction_id"] == "r5c:funding"
+    assert spend(directives).meta["transaction_id"] == "r5c"
 
 
 def test_a_disposal_pins_the_cost_currency():
@@ -204,12 +252,13 @@ def test_a_disposal_pins_the_cost_currency():
     matches none of the euro-cost lots and fails with 'no position matches'."""
     row = purchase("r6", "2024-05-02T10:00:00.000Z", 0.046397, "ETH", 109.99, "USD")
 
-    (txn,) = transactions(parse(row))
+    directives = parse(row)
 
-    held, expense, _ = txn.postings
+    held, proceeds, _ = sale(directives).postings
     assert held.cost.number is None
     assert held.cost.currency == "EUR"
-    assert expense.units == (Decimal("109.99"), "USD")
+    assert proceeds.units == (Decimal("109.99"), "USD")
+    assert spend(directives).postings[1].units == (Decimal("109.99"), "USD")
 
 
 def test_a_euro_funded_purchase_books_what_left_the_account():
@@ -292,14 +341,19 @@ def test_a_refund_returns_units_and_credits_the_spending():
         "discriminator": "TwoWayTransactionalActivityDto",
     }
 
-    (txn,) = transactions(parse(row))
+    directives = parse(row)
 
-    held, credit, gain = txn.postings
+    held, spent, gain = sale(directives).postings
     assert held.units == (Decimal("0.015163"), "ETH")
     assert held.cost.number == Decimal(0)
-    assert credit.account is None
-    assert credit.units == (Decimal("-38.65"), "EUR")
+    assert spent.units == (Decimal("-38.65"), "EUR"), "the euro buys the ether back"
     assert gain.account == GAINS
+    assert sale(directives).narration == "Bought ETH"
+
+    received, credit = spend(directives).postings
+    assert received.units == (Decimal("38.65"), "EUR")
+    assert credit.account is None
+    assert credit.units == (Decimal("-38.65"), "EUR"), "credits the original spending"
 
 
 def test_an_exchange_of_units_for_euro_lands_the_proceeds_in_cash():
@@ -401,8 +455,8 @@ def test_a_fee_rows_zero_balance_is_not_asserted():
     directives = parse(first, fee, last)
 
     assert balances(directives) == []
-    # It is still booked: the fee really was charged.
-    assert len(transactions(directives)) == 3
+    # Still booked: the fee really was charged. Each row is a sale plus a payment.
+    assert len(transactions(directives)) == 6
 
 
 def test_a_balance_on_the_files_own_edge_is_not_asserted():
@@ -432,9 +486,7 @@ def test_the_row_id_is_the_transaction_id_not_the_transaction_id_field():
     row = purchase("row-id", "2024-05-02T10:00:00.000Z", 0.001, "ETH", 2.50, "EUR")
     row["transaction_id"] = "shared-id"
 
-    (txn,) = transactions(parse(row))
-
-    assert txn.meta["transaction_id"] == "row-id"
+    assert spend(parse(row)).meta["transaction_id"] == "row-id"
 
 
 def test_ordering_is_absolute_so_it_survives_being_split_across_pages():
@@ -445,10 +497,7 @@ def test_ordering_is_absolute_so_it_survives_being_split_across_pages():
     late = purchase("b", "2024-05-02T11:00:00.000Z", 0.002, "ETH", 5.00, "EUR")
 
     # Parsed alone, each is the only row in its file — a counter would give both sequence 0.
-    (first,) = transactions(parse(early))
-    (second,) = transactions(parse(late))
-
-    assert first.meta["sequence"] < second.meta["sequence"]
+    assert spend(parse(early)).meta["sequence"] < spend(parse(late)).meta["sequence"]
 
 
 def test_the_positions_account_is_opened_for_fifo_at_the_earliest_holding():
@@ -476,9 +525,9 @@ def test_the_positions_account_defaults_to_a_sibling_of_the_cash_account():
     """Still tested because nothing else exercises it now that this ledger declares the key."""
     row = purchase("a", "2024-05-02T10:00:00.000Z", 0.001, "ETH", 2.50, "EUR")
 
-    (txn,) = transactions(parse(row, accounts={"WIREX": "Assets:Crypto:Wirex:Cash"}))
+    directives = parse(row, accounts={"WIREX": "Assets:Crypto:Wirex:Cash"})
 
-    assert txn.postings[0].account == "Assets:Crypto:Wirex:Positions"
+    assert sale(directives).postings[0].account == "Assets:Crypto:Wirex:Positions"
 
 
 def test_an_undeclared_account_raises_rather_than_being_guessed():
@@ -501,7 +550,7 @@ def test_merchant_detail_is_kept_for_rules_to_match_on():
         },
     )
 
-    (txn,) = transactions(parse(row))
+    txn = spend(parse(row))
 
     assert txn.meta["category"] == "Groceries"
     assert txn.meta["merchant_address"].endswith("Belgium")
@@ -509,4 +558,8 @@ def test_merchant_detail_is_kept_for_rules_to_match_on():
     assert txn.meta["comment"] == "WIDGET SHOP,BRUSSELS,BEL"
     # Recorded, not booked: nothing values it and the WXT balance is a placeholder.
     assert txn.meta["reward_wxt"] == Decimal("89.0")
-    assert all(posting.units is None or posting.units.currency != "WXT" for posting in txn.postings)
+    assert all(
+        posting.units is None or posting.units.currency != "WXT"
+        for entry in transactions(parse(row))
+        for posting in entry.postings
+    )
