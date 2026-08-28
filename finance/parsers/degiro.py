@@ -143,6 +143,19 @@ BOOKING = "FIFO"
 #: How far quantity x price may sit from the cash amount and still be considered proven.
 TRADE_TOLERANCE = Decimal("0.02")
 
+#: A corporate action that pays cash for a whole position and ends it: a company taken private,
+#: delisted, wound up, or a bond reaching maturity.
+#:
+#: The row names no quantity, because nothing was sold — the holding simply stopped existing and
+#: cash arrived for it. So the quantity comes from what this parser has booked, and the whole
+#: remaining position is disposed of.
+#:
+#: `Verrekening van Aandelen` is deliberately NOT here, despite reading almost identically. It
+#: settles a *fraction* — the odd share left over after a spin-off — and the two rows carrying it
+#: belong to holdings that are still open. Treating it the same way would close a live position
+#: on a payment of a few euro.
+SETTLEMENT = ("Contante Verrekening",)
+
 
 def _number_readings(text: str) -> set[Decimal]:
     """Every plausible reading of a European-formatted number.
@@ -381,6 +394,23 @@ def _postings(
     without this check the later sale of those shares would reduce a position that does not
     exist, and Beancount rejects the whole transaction.
     """
+    if counter is None and any(marker in description for marker in SETTLEMENT):
+        settled = commodity_of(isin, product)
+        outstanding = held.get(settled, Decimal(0)) if settled else Decimal(0)
+        if settled and outstanding > 0:
+            # The holding ends here. Booked as a disposal naming no lot, so the booking method
+            # picks them and the elided posting absorbs whatever gain or loss falls out.
+            held[settled] = Decimal(0)
+            return (
+                Posting(account=cash, units=Amount(amount, currency)),
+                Posting(
+                    account=positions,
+                    units=Amount(-outstanding, settled),
+                    cost=EMPTY_COST,
+                ),
+                Posting(account=gains, units=None),
+            )
+
     trade = parse_trade(description, amount, currency) if counter is None else None
     commodity = commodity_of(isin, product) if trade else None
 

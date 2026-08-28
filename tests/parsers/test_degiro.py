@@ -40,6 +40,14 @@ def transactions(directives):
     return [d for d in directives if isinstance(d, Transaction)]
 
 
+def row(description, amount, *, isin, product, date="02-01-2024", balance="0,00"):
+    """One export row. Amounts use European notation, quoted because of the comma."""
+    european = amount.replace(".", ",")
+    return (
+        f'{date},10:00,{date},{product},{isin},"{description}",,EUR,"{european}",EUR,"{balance}",'
+    )
+
+
 def test_fee_row():
     (txn,) = transactions(parse(FEE))
 
@@ -232,3 +240,64 @@ def test_crypto_without_an_isin_uses_the_product_name():
 
     assert txn.postings[1].units.currency == "BITCOIN"
     assert txn.postings[1].units.number == Decimal("0.595193")
+
+
+# --- corporate actions that end a position ----------------------------------------------
+# A company taken private, delisted or wound up, and a bond reaching maturity, all pay cash for
+# the whole holding. The row names no quantity, because nothing was sold — so before this was
+# handled the cash landed in a bucket of its own and the holding stayed on the books forever.
+# Seven positions were sitting there, including a government bond worth four figures.
+
+
+def test_a_cash_settlement_disposes_of_the_whole_holding():
+    rows = [
+        # newest first, as the export writes it
+        row(
+            "Contante Verrekening Obligatie",
+            "105.00",
+            isin="DE0000000001",
+            product="SOME BOND",
+            date="03-01-2024",
+        ),
+        row("Koop 100 @ 1 EUR", "-100.00", isin="DE0000000001", product="SOME BOND"),
+    ]
+    buy, settlement = transactions(parse(*rows))
+
+    assert buy.postings[1].units == (Decimal("100"), "DE0000000001")
+    cash, position, gain = settlement.postings
+    assert cash.units.number == Decimal("105.00")
+    assert position.units == (Decimal("-100"), "DE0000000001")
+    assert position.cost.number is None  # the booking method picks the lots
+    assert gain.account == "Income:CapitalGains:Broker"
+    assert gain.units is None
+
+
+def test_a_fractional_settlement_leaves_the_holding_alone():
+    """`Verrekening van Aandelen` reads almost identically but settles the odd share left over
+    after a spin-off. The two rows carrying it here belong to holdings that are still open, so
+    treating it as a full settlement would close a live position for a few euro."""
+    rows = [
+        row(
+            "Verrekening van Aandelen",
+            "1.50",
+            isin="US0000000002",
+            product="STILL LISTED",
+            date="03-01-2024",
+        ),
+        row("Koop 10 @ 10 EUR", "-100.00", isin="US0000000002", product="STILL LISTED"),
+    ]
+    buy, fractional = transactions(parse(*rows))
+
+    assert buy.postings[1].units == (Decimal("10"), "US0000000002")
+    assert len(fractional.postings) == 2
+    assert fractional.postings[1].account is None
+
+
+def test_a_settlement_of_something_never_booked_stays_cash_only():
+    """Nothing to dispose of, so there is nothing to prove — it falls through to the rules."""
+    (txn,) = transactions(
+        parse(row("Contante Verrekening Aandelen", "5.00", isin="US0000000003", product="GHOST"))
+    )
+
+    assert len(txn.postings) == 2
+    assert txn.postings[1].account is None
