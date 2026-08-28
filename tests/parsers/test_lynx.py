@@ -14,10 +14,10 @@ from finance.parsers.base import UnknownAccountError
 
 ACCOUNTS = {
     "LYNX": "Assets:Cash:Lynx",
-    "LYNX_POSITIONS": "Assets:Investments:Lynx:Positions",
+    "LYNX_POSITIONS": "Assets:Investments:Brokers:Lynx",
 }
 CASH = "Assets:Cash:Lynx"
-POSITIONS = "Assets:Investments:Lynx:Positions"
+POSITIONS = "Assets:Investments:Brokers:Lynx"
 
 HEADER = [
     "Statement,Header,Field Name,Field Value",

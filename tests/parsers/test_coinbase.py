@@ -17,10 +17,10 @@ from finance.parsers.base import UnknownAccountError
 
 ACCOUNTS = {
     "COINBASE": "Assets:Cash:Coinbase",
-    "COINBASE_POSITIONS": "Assets:Investments:Coinbase:Positions",
+    "COINBASE_POSITIONS": "Assets:Investments:Brokers:Coinbase",
 }
 CASH = "Assets:Cash:Coinbase"
-POSITIONS = "Assets:Investments:Coinbase:Positions"
+POSITIONS = "Assets:Investments:Brokers:Coinbase"
 
 PREAMBLE = [
     "",

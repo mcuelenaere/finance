@@ -234,13 +234,13 @@ def test_open_renders_a_booking_method():
         Open(
             meta={},
             date=date(2024, 3, 1),
-            account="Assets:Investments:Degiro:Positions",
+            account="Assets:Investments:Brokers:Degiro:Positions",
             currencies=(),
             booking="FIFO",
         )
     )
 
-    assert out == '2024-03-01 open Assets:Investments:Degiro:Positions "FIFO"'
+    assert out == '2024-03-01 open Assets:Investments:Brokers:Degiro:Positions "FIFO"'
 
 
 def test_open_without_a_booking_method_is_unchanged():

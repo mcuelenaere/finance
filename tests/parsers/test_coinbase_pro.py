@@ -17,9 +17,9 @@ from finance.parsers.base import UnknownAccountError
 
 ACCOUNTS = {
     "COINBASE_PRO": "Assets:Cash:CoinbasePro",
-    "COINBASE_PRO_POSITIONS": "Assets:Investments:CoinbasePro:Positions",
+    "COINBASE_PRO_POSITIONS": "Assets:Investments:Brokers:CoinbasePro",
 }
-POSITIONS = "Assets:Investments:CoinbasePro:Positions"
+POSITIONS = "Assets:Investments:Brokers:CoinbasePro"
 CASH = "Assets:Cash:CoinbasePro"
 
 HEADER = "portfolio,type,time,amount,balance,amount/balance unit,transfer id,trade id,order id"
@@ -102,7 +102,7 @@ def test_a_fee_charged_in_the_coin_reduces_the_position():
     row = "default,fee,2021-02-22T20:14:32.000Z,-0.0000003773,0.0011,BTC,,90003,o4"
     (txn,) = transactions(parse(row))
 
-    assert txn.postings[0].account.endswith(":Positions")
+    assert txn.postings[0].account == POSITIONS
     assert txn.postings[0].units.currency == "BTC"
     assert txn.postings[0].cost.number is None
 

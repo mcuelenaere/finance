@@ -16,11 +16,11 @@ from finance.parsers.base import UnknownAccountError
 
 ACCOUNTS = {
     "PENSION": "Assets:Cash:PensionSavings",
-    "PENSION_POSITIONS": "Assets:Investments:PensionSavings:Positions",
+    "PENSION_POSITIONS": "Assets:Investments:PensionSavings",
 }
 ACCOUNT_KEY = "pension"
 CASH = "Assets:Cash:PensionSavings"
-POSITIONS = "Assets:Investments:PensionSavings:Positions"
+POSITIONS = "Assets:Investments:PensionSavings"
 
 
 def write(tmp_path, transactions, positions=(), as_of=None, account=ACCOUNT_KEY):

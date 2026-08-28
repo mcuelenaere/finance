@@ -16,10 +16,10 @@ from finance.parsers.base import UnknownAccountError
 
 ACCOUNTS = {
     "BUX": "Assets:Cash:BUX",
-    "BUX_POSITIONS": "Assets:Investments:BUX:Positions",
+    "BUX_POSITIONS": "Assets:Investments:Brokers:BUX",
 }
 CASH = "Assets:Cash:BUX"
-POSITIONS = "Assets:Investments:BUX:Positions"
+POSITIONS = "Assets:Investments:Brokers:BUX"
 GAINS = "Income:CapitalGains:Broker"
 
 HEADER = (

@@ -28,9 +28,9 @@ transfer_account: Assets:Clearing:Transfers
 # "be12345678901234" are the same key. Brokers with no IBAN in their export use the fixed
 # key their parser declares (ACCOUNT_KEY): degiro, coinbase_pro.
 own_accounts:
-  BE12 3456 7890 1234: Assets:Cash:Belfius:Checking
+  BE12 3456 7890 1234: Assets:Cash:Belfius
   BE98 7654 3210 9876: Assets:Savings:Belfius
-  123-4567890-12: Assets:Cash:ING:Checking
+  123-4567890-12: Assets:Cash:ING
   degiro: Assets:Cash:Degiro:Main
   coinbase_pro: Assets:Crypto:CoinbasePro:Cash
 

@@ -113,7 +113,7 @@ def test_multi_currency_gets_one_assertion_each():
 
 # --- positions -------------------------------------------------------------------------
 
-POSITIONS = "Assets:Investments:Degiro:Positions"
+POSITIONS = "Assets:Investments:Degiro:Positions"  # the sibling default
 
 
 def trade_row(
