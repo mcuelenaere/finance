@@ -54,6 +54,56 @@ TESTCASES = (
         "2017-07-17",
         id="sepa-transfer-name-and-iban",
     ),
+    # ING renames its payment channels freely, and the counterparty used to be read only for
+    # a hard-coded list of them. These four differ from a listed channel by a colon or a word,
+    # and every one of them silently lost its counterparty — which for a transfer to an own
+    # account means both legs land and the balance doubles.
+    pytest.param(
+        r"390-1234567-89;DE H JOHN DOE;;411;21/02/2020;21/02/2020;-10000,00;EUR;"
+        r"Overschrijving in euro (SEPA) Home'Bank                              "
+        r"           Naar: Stichting DEGIRO - NL12ABNA3456789012               "
+        r"                      Mededeling: inboeking degiro                   ;;",
+        "Stichting DEGIRO",
+        "NL12ABNA3456789012",
+        Decimal("-10000.00"),
+        "2020-02-21",
+        id="sepa-home-bank-without-the-colon",
+    ),
+    pytest.param(
+        r"390-1234567-89;DE H JOHN DOE;;412;05/09/2021;05/09/2021;-2500,00;EUR;"
+        r"Overschrijving in euro (SEPA): ING app                               "
+        r"           - 2.500,00                                                "
+        r"           Naar: John Doe - DE12345678901234567890                   ;;",
+        "John Doe",
+        "DE12345678901234567890",
+        Decimal("-2500.00"),
+        "2021-09-05",
+        id="sepa-ing-app",
+    ),
+    pytest.param(
+        r"390-1234567-89;DE H JOHN DOE;;413;03/09/2022;03/09/2022;-1000,00;EUR;"
+        r"Instantoverschrijving in euro: Home'Bank                             "
+        r"           - 1.000,00                                                "
+        r"           Naar: Zichtrekening - BE12345678901234                    "
+        r"           Instant op 03/09 - 15:53:07                               ;;",
+        "Zichtrekening",
+        "BE12345678901234",
+        Decimal("-1000.00"),
+        "2022-09-03",
+        id="instant-transfer",
+    ),
+    pytest.param(
+        r"390-1234567-89;DE H JOHN DOE;;414;11/06/2023;11/06/2023;-4,00;EUR;"
+        r"Payconiq-betaling                                                    "
+        r"           - 4,00                                                    "
+        r"           Naar: Jane Roe - BE98765432109876                         "
+        r"           Mededeling: By Payconiq                                   ;;",
+        "Jane Roe",
+        "BE98765432109876",
+        Decimal("-4.00"),
+        "2023-06-11",
+        id="payconiq",
+    ),
 )
 
 

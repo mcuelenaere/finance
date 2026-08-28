@@ -55,17 +55,17 @@ def _counterparty(row: dict[str, str]) -> tuple[str | None, str | None]:
         if name and number:
             return name, number
 
-    if (
-        description.startswith("ING Smart Banking-betaling")
-        or description.startswith("Overschrijving MyING.be")
-        or description.startswith("Overschrijving Home'Bank")
-        or description.startswith("Overschrijving in euro (SEPA): ING Smart Banking")
-    ):
-        for part in re.split(r"\s{3,}", description):
-            if part.startswith("Naar: "):
-                name, _, number = part.replace("Naar: ", "").partition(" - ")
+    # A transfer names its counterparty as `Naar: <name> - <iban>` in the description. This
+    # used to be gated on a list of description prefixes, which meant every ING rename of a
+    # payment channel silently dropped the counterparty: `Overschrijving in euro (SEPA)
+    # Home\'Bank` and `Overschrijving in euro (SEPA): Home\'Bank` differ by one colon, and only
+    # one of them was listed. Keying on the labelled part instead makes the channel irrelevant.
+    for part in re.split(r"\s{3,}", description):
+        for label in ("Naar: ", "Ten gunste van: ", "Van: "):
+            if part.startswith(label):
+                name, _, number = part[len(label) :].partition(" - ")
                 if name and number:
-                    return name, number
+                    return name.strip(), number.strip()
 
     if row.get("Rekening tegenpartij"):
         return None, row["Rekening tegenpartij"]
