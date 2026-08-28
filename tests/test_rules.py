@@ -232,7 +232,8 @@ def test_direction_out_ignores_money_coming_in():
     )
 
     assert rules.classify(txn(payee="SHOP", amount="-10")).account == "Expenses:Food"
-    assert rules.classify(txn(payee="SHOP", amount="25")).account == "Expenses:Unknown"
+    # Falls through to the fallback, and an inflow's fallback is on the income side.
+    assert rules.classify(txn(payee="SHOP", amount="25")).account == "Income:Unknown"
 
 
 def test_a_rule_without_direction_still_claims_both_ways():
@@ -277,3 +278,49 @@ def test_an_unknown_direction_is_rejected():
         parse_rule(
             {"field": "payee", "value": "X", "account": "Income:Salary", "direction": "sideways"}
         )
+
+
+# --- the fallback follows the direction too --------------------------------------------
+# One fallback for both directions nets unclassified inflow against unclassified outflow, so
+# the bucket reads far smaller than the work left in it, and money arriving disappears from
+# the income statement as a negative expense.
+
+
+def test_unclassified_money_out_falls_back_to_expenses():
+    rules = ruleset()
+
+    assert rules.classify(txn(payee="MYSTERY", amount="-40")).account == "Expenses:Unknown"
+
+
+def test_unclassified_money_in_falls_back_to_income():
+    rules = ruleset()
+
+    assert rules.classify(txn(payee="MYSTERY", amount="40")).account == "Income:Unknown"
+
+
+def test_both_fallbacks_still_count_as_unmatched():
+    """Either way it is work outstanding, so the review queue must see both."""
+    rules = ruleset()
+
+    for amount in ("-40", "40"):
+        assert rules.classify(txn(payee="MYSTERY", amount=amount)).reason == REASON_FALLBACK
+        assert not rules.classify(txn(payee="MYSTERY", amount=amount)).matched
+
+
+def test_an_amountless_transaction_keeps_the_expense_fallback():
+    """Nothing to judge the direction by, so the historical default stands."""
+    rules = ruleset()
+    without_amount = txn(payee="MYSTERY")._replace(
+        postings=(Posting(account="Assets:Belfius:Checking", units=None),)
+    )
+
+    assert rules.classify(without_amount).account == "Expenses:Unknown"
+
+
+def test_both_fallbacks_are_configurable():
+    rules = ruleset()._replace(
+        fallback_account="Expenses:TODO", income_fallback_account="Income:TODO"
+    )
+
+    assert rules.classify(txn(payee="X", amount="-1")).account == "Expenses:TODO"
+    assert rules.classify(txn(payee="X", amount="1")).account == "Income:TODO"

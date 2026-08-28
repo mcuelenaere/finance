@@ -7,7 +7,12 @@
 # through `finance review <slug>`), and `finance build` then applies it deterministically.
 
 # Where unmatched transactions land. Anything here is work for `finance review`.
+# Where a transaction no rule claimed goes. Two of them, split by direction: netting
+# unclassified inflow against unclassified outflow makes the bucket read far smaller than the
+# work left in it, and money arriving would vanish from the income statement as a negative
+# expense — the one place nobody looks for income.
 fallback_account: Expenses:Unknown
+income_fallback_account: Income:Unknown
 
 # Clearing account for money moving between accounts you own. Both legs post here, so it
 # nets to zero once they pair up — a non-zero balance means a leg is missing or

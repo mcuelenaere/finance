@@ -116,6 +116,12 @@ It is *not* committed, despite diffs being the natural way to review what a rule
 history in plain text. Getting that review loop back means a separate private repo for the
 ledger, not relaxing the ignore rules.
 
+**There are two fallback accounts, split by direction.** Unclassified money out lands in
+`Expenses:Unknown`, unclassified money in on `Income:Unknown`. A single bucket for both nets
+the two against each other, so it reads as a fraction of the work actually left in it — and
+money arriving disappears from the income statement as a negative expense, which is the one
+place nobody thinks to look for income. Both are `own_accounts`-level config keys.
+
 **Investment transfers are not expenses.** A rule sending a broker transfer to `Expenses:*`
 makes net worth permanently wrong. Those go to `Assets:*`.
 

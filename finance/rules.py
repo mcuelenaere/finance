@@ -28,6 +28,10 @@ REASON_RULE = "rule"
 REASON_OWN_ACCOUNT = "own-account"
 REASON_FALLBACK = "fallback"
 
+#: Fallback accounts, split by direction — see :attr:`Ruleset.income_fallback_account`.
+DEFAULT_FALLBACK = "Expenses:Unknown"
+DEFAULT_INCOME_FALLBACK = "Income:Unknown"
+
 
 #: A rule may require the money to be moving a particular way. ``in`` claims only what the
 #: account received, ``out`` only what it paid.
@@ -168,6 +172,11 @@ class Ruleset(NamedTuple):
     own_accounts: Mapping[str, str]
     fallback_account: str
     transfer_account: str
+    #: Where unclassified money *arriving* goes. A single fallback for both directions nets
+    #: inflow against outflow, so the bucket reads far smaller than the work left in it and
+    #: unattributed income vanishes from the income statement entirely — booked as a negative
+    #: expense, which is the one place nobody looks for income.
+    income_fallback_account: str = DEFAULT_INCOME_FALLBACK
 
     def account_for_identifier(self, identifier: str | None) -> str | None:
         """Resolve one of the user's own account identifiers to its Beancount account.
@@ -201,6 +210,9 @@ class Ruleset(NamedTuple):
             if value and _matches(rule, value):
                 return Match(rule.account, REASON_RULE, rule)
 
+        amount = movement(txn)
+        if amount is not None and amount > 0:
+            return Match(self.income_fallback_account, REASON_FALLBACK)
         return Match(self.fallback_account, REASON_FALLBACK)
 
     def resolve(self, txn: Transaction) -> Transaction:
@@ -233,8 +245,9 @@ def load_ruleset(path: str) -> Ruleset:
     return Ruleset(
         rules=tuple(parse_rule(rule) for rule in (config.get("rules") or [])),
         own_accounts=own_accounts,
-        fallback_account=str(config.get("fallback_account", "Expenses:Unknown")),
+        fallback_account=str(config.get("fallback_account", DEFAULT_FALLBACK)),
         transfer_account=str(config.get("transfer_account", "Assets:Transfers")),
+        income_fallback_account=str(config.get("income_fallback_account", DEFAULT_INCOME_FALLBACK)),
     )
 
 

@@ -15,7 +15,12 @@ from typing import NamedTuple
 
 import yaml
 
-from finance.rules import Ruleset, parse_rule
+from finance.rules import (
+    DEFAULT_FALLBACK,
+    DEFAULT_INCOME_FALLBACK,
+    Ruleset,
+    parse_rule,
+)
 from finance.text import normalize_identifier
 
 RULES_DIR = Path("rules")
@@ -66,8 +71,9 @@ def load(slug: str, *, root: Path | None = None) -> LedgerConfig:
             normalize_identifier(str(identifier)): str(account)
             for identifier, account in (config.get("own_accounts") or {}).items()
         },
-        fallback_account=str(config.get("fallback_account", "Expenses:Unknown")),
+        fallback_account=str(config.get("fallback_account", DEFAULT_FALLBACK)),
         transfer_account=str(config.get("transfer_account", "Assets:Transfers")),
+        income_fallback_account=str(config.get("income_fallback_account", DEFAULT_INCOME_FALLBACK)),
     )
 
     sources = []

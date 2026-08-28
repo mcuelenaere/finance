@@ -1,6 +1,6 @@
 ---
 name: categorize-transactions
-description: Write Beancount categorization rules for unmatched bank transactions in this repo. Use when transactions are falling through to Expenses:Unknown, after importing a new export or adding a parser, or when the user asks to categorize, classify, or "sort out" transactions for a ledger.
+description: Write Beancount categorization rules for unmatched bank transactions in this repo. Use when transactions are falling through to Expenses:Unknown or Income:Unknown, after importing a new export or adding a parser, or when the user asks to categorize, classify, or "sort out" transactions for a ledger.
 ---
 
 # Categorizing transactions
