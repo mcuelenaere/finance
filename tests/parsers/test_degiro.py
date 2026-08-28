@@ -171,7 +171,7 @@ def test_a_sale_names_no_lot_so_the_booking_method_picks_one():
     assert position.cost.number is None  # renders as {}
     assert position.price.number == Decimal("100.00")
     assert cash.units.number == Decimal("200.00")
-    assert gain.account == "Income:CapitalGains" and gain.units is None
+    assert gain.account == "Income:CapitalGains:Broker" and gain.units is None
 
 
 def test_a_split_is_booked_with_its_side_taken_from_the_cash_sign():

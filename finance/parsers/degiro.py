@@ -48,7 +48,12 @@ from finance.models import (
     Posting,
     Transaction,
 )
-from finance.parsers.base import Accounts, parse_decimal, resolve_account
+from finance.parsers.base import (
+    DEFAULT_GAINS_ACCOUNT,
+    Accounts,
+    parse_decimal,
+    resolve_account,
+)
 from finance.text import normalize_text
 
 INSTITUTION = "degiro"
@@ -62,9 +67,9 @@ FLATEX_ACCOUNT_KEY = "degiro_flatex"
 
 #: Optional ``own_accounts`` key for where realised gains land. A parser policy choice, and
 #: necessarily one: a disposal's gain is computed by Beancount from the lots, so there is no row
-#: for a rule to claim.
+#: for a rule to claim. The default comes from :mod:`finance.parsers.base` and is shared with
+#: every other broker.
 GAINS_ACCOUNT_KEY = "degiro_gains"
-DEFAULT_GAINS_ACCOUNT = "Income:CapitalGains"
 
 COLUMNS = 12
 

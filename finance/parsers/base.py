@@ -19,6 +19,20 @@ from finance.text import normalize_identifier
 #: Beancount account it represents. Comes from ``own_accounts`` in the ruleset.
 Accounts = Mapping[str, str]
 
+#: Where a broker disposal's realised gain lands, unless ``own_accounts`` overrides it.
+#:
+#: Shared by every broker parser rather than owned by one, and named for the *kind* of gain
+#: rather than the venue that produced it. A gain on an ETF sold at DEGIRO and the same gain
+#: on the same ETF sold at Lynx are the same fact about the portfolio; which broker held the
+#: position is already recorded on the asset side, so repeating it here would split one line
+#: of the income statement across as many leaves as there are brokers, and re-split it every
+#: time an account moves.
+#:
+#: Deliberately not split per instrument either. Beancount derives the gain from the lots, so
+#: a per-stock breakdown is a query over the postings rather than a shape the account tree has
+#: to carry — and the tree cannot be un-split later without rewriting history.
+DEFAULT_GAINS_ACCOUNT = "Income:CapitalGains:Broker"
+
 
 class UnknownAccountError(LookupError):
     """An export references an account that is not declared in ``own_accounts``.

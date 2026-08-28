@@ -68,7 +68,9 @@ PRECISION = Decimal("0.00000001")
 #: Only purchases are booked as positions. This export contains no disposals, so the shape of
 #: one — whether the tax is deducted from proceeds the same way, and how the lot is identified —
 #: cannot be checked against anything. A sale is left as cash and shows up in review rather than
-#: being booked on a guess.
+#: being booked on a guess. When one does appear, its realised gain belongs in
+#: ``base.DEFAULT_GAINS_ACCOUNT`` — the same account DEGIRO disposals use, since a gain is a
+#: gain whichever broker held the position.
 ACQUISITION = "Buy"
 
 
