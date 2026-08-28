@@ -1,8 +1,8 @@
-"""Belfius pension savings, reconstructed from a Delta export.
+"""Delta portfolio exports.
 
-Unlike every other parser here, the input is a hand transcription rather than a bank's own
-file — Belfius will not export this account. The balance assertions are what make that safe, so
-they are the thing most worth testing.
+Unlike every other parser here, the input is a hand transcription rather than a bank's own file:
+the first account read this way had a bank that refuses to export anything. The balance
+assertions are what make that safe, so they are the thing most worth testing.
 """
 
 import json
@@ -11,16 +11,21 @@ from decimal import Decimal
 import pytest
 
 from finance.models import Balance, Open, Transaction
-from finance.parsers import delta_pension
+from finance.parsers import delta
 from finance.parsers.base import UnknownAccountError
 
 ACCOUNTS = {"PENSION": "Assets:Investments:PensionSavings:Cash"}
+ACCOUNT_KEY = "pension"
 CASH = "Assets:Investments:PensionSavings:Cash"
 POSITIONS = "Assets:Investments:PensionSavings:Positions"
 
 
-def write(tmp_path, transactions, positions=(), as_of=None):
-    payload = {"transactions": list(transactions), "positions": list(positions)}
+def write(tmp_path, transactions, positions=(), as_of=None, account=ACCOUNT_KEY):
+    payload = {
+        "account": account,
+        "transactions": list(transactions),
+        "positions": list(positions),
+    }
     if as_of:
         payload["as_of"] = as_of
     path = tmp_path / "pension.json"
@@ -41,7 +46,7 @@ def buy(date, base, amount, price, txn_id=1):
 
 
 def parse(path):
-    return list(delta_pension.parse_file(path, ACCOUNTS))
+    return list(delta.parse_file(path, ACCOUNTS))
 
 
 def transactions(directives):
@@ -166,4 +171,24 @@ def test_a_row_that_is_not_a_purchase_is_left_to_the_rules(tmp_path):
 def test_missing_account_is_an_error_not_a_guess(tmp_path):
     path = write(tmp_path, [buy("2024-01-16", "BE0000000001", 0.5, 100.0)])
     with pytest.raises(UnknownAccountError, match="pension"):
-        list(delta_pension.parse_file(path, {}))
+        list(delta.parse_file(path, {}))
+
+
+def test_the_export_names_its_own_account():
+    """One tracker holds many portfolios, so the file has to say which account it is."""
+    assert delta.ACCOUNT_FIELD == "account"
+
+
+def test_an_export_without_an_account_falls_back_to_the_default_key(tmp_path):
+    path = write(tmp_path, [buy("2024-01-16", "BE0000000001", 0.5, 100.0)], account=None)
+    with pytest.raises(UnknownAccountError, match=delta.DEFAULT_ACCOUNT_KEY):
+        list(delta.parse_file(path, {"PENSION": "Assets:X:Cash"}))
+
+
+def test_the_named_account_is_the_one_resolved(tmp_path):
+    path = write(
+        tmp_path, [buy("2024-01-16", "BE0000000001", 0.5, 100.0)], account="somewhere_else"
+    )
+    (txn,) = transactions(list(delta.parse_file(path, {"SOMEWHERE_ELSE": "Assets:Other:Cash"})))
+
+    assert txn.postings[1].account == "Assets:Other:Cash"

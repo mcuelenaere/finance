@@ -35,16 +35,15 @@ from finance.models import (
 )
 from finance.parsers.base import Accounts, resolve_account
 
-INSTITUTION = "delta_pension"
+INSTITUTION = "delta"
 
-#: ``own_accounts`` key for the cash side of the pension account.
-#:
-#: The monthly standing order is claimed by a *rule* pointing straight at this account rather
-#: than being routed through the clearing account, because the export has no deposits to pair
-#: with — only the purchases the deposits paid for. What is left in it is therefore the
-#: difference between money in and units bought, which is the entry fee. A small positive
-#: balance is expected; a large one means a payment bought nothing.
-ACCOUNT_KEY = "pension"
+#: ``own_accounts`` key used when an export does not name one. A file should say which account
+#: it belongs to — see ``ACCOUNT_FIELD`` — because one tracker holds many portfolios and the
+#: parser cannot tell them apart otherwise.
+DEFAULT_ACCOUNT_KEY = "delta"
+
+#: Where an export declares its own ``own_accounts`` key.
+ACCOUNT_FIELD = "account"
 
 #: Where the fund units are held, and how a future disposal picks its lots.
 POSITIONS_LEAF = "Positions"
@@ -61,11 +60,12 @@ def _decimal(value: object) -> Decimal:
 
 
 def parse_file(path: str, accounts: Accounts) -> Iterator[Directive]:
-    cash = resolve_account(accounts, ACCOUNT_KEY, source=path)
-    positions = f"{cash.rpartition(':')[0]}:{POSITIONS_LEAF}"
-
     with open(path, encoding="utf-8") as handle:
         export = json.load(handle)
+
+    key = str(export.get(ACCOUNT_FIELD) or DEFAULT_ACCOUNT_KEY)
+    cash = resolve_account(accounts, key, source=path)
+    positions = f"{cash.rpartition(':')[0]}:{POSITIONS_LEAF}"
 
     rows = export.get("transactions") or []
     # Sorted explicitly: the export is newest-first, and the build must not depend on the order

@@ -91,6 +91,11 @@ and fails silently.
 
 Repeat. `.claude/skills/categorize-transactions/` has this as an invokable skill.
 
+Two other skills cover the agent-fetches-code-applies split: `refresh-prices` writes market
+prices from a portfolio snapshot, and `import-delta-portfolio` writes a whole transaction
+history for accounts whose own institution exports nothing. Both materialize text and commit
+it; neither lets a build perform a lookup.
+
 **Income rules keyed on a counterparty need `direction: in`.** Such a rule claims everything
 that counterparty is involved in, both ways, so a payment *back* to an employer lands as
 negative salary — which reads as a small pay cut rather than the unclassified payment it is.
